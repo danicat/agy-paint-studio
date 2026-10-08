@@ -1,0 +1,11 @@
+{
+  "command": "node",
+  "args": ["run.mjs"],
+  "restart_policy": "always",
+  "display_name": "Paint Studio",
+  "description": "Interactive multi-layer drawing, PSD editing, and Gemini AI image refinement studio sidecar for Antigravity.",
+  "env": {
+    "PORT": "7788",
+    "MODEL": "gemini-3.1-flash-lite-image"
+  }
+}
