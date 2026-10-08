@@ -23,7 +23,7 @@ import { LayerPanel } from './ui/LayerPanel.ts';
 import { NotificationManager } from './ui/Notification.ts';
 import { getStudioMode, getFullStudioUrl, onSessionChange } from './utils/api.ts';
 
-window.addEventListener('DOMContentLoaded', () => {
+function initStudio(): void {
   try {
     const mode = getStudioMode();
     const modeClass = mode === 'preview' ? 'studio-mode-preview' : 'studio-mode-full';
@@ -96,7 +96,13 @@ window.addEventListener('DOMContentLoaded', () => {
     console.error('[Paint Studio] Initialization error:', err);
     NotificationManager.fatal('Application Initialization Failed', err);
   }
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', initStudio, { once: true });
+} else {
+  initStudio();
+}
 
 // Global error handlers to fail fast and visibly
 window.addEventListener('error', (event) => {

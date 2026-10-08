@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
@@ -125,13 +126,23 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     assert.strictEqual(data.status, 'ok');
   });
 
-  test('GET /api/template?session_id=valid-session-1 returns 200 HTML with __SESSION_ID__ replaced', async () => {
+  test('GET /api/template?session_id=valid-session-1 returns 200 HTML with __SESSION_ID__ replaced and valid JS syntax', async () => {
     const res = await fetch(`${baseUrl}/api/template?session_id=valid-session-1`);
     assert.strictEqual(res.status, 200);
     assert.ok(res.headers.get('content-type')?.includes('text/html'));
     const html = await res.text();
     assert.ok(html.includes('valid-session-1'));
     assert.ok(!html.includes('__SESSION_ID__'));
+    assert.ok(!html.includes('__PORT__'));
+    assert.ok(!html.includes('__HOST__'));
+
+    const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)];
+    assert.ok(scripts.length >= 2, 'Expected at least 2 inline script blocks in rendered template');
+    for (let i = 0; i < scripts.length; i++) {
+      assert.doesNotThrow(() => {
+        new vm.Script(scripts[i][1], { filename: `template-script-${i}.js` });
+      }, `Inline script #${i} in rendered template failed JavaScript syntax validation`);
+    }
   });
 
   test('GET /api/template?session_id=bad"><script> returns 400 blocking reflected XSS', async () => {

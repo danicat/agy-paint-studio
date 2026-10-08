@@ -31,10 +31,6 @@ export interface SessionSummary {
 declare global {
   interface Window {
     __STUDIO_CONFIG__?: StudioConfig;
-    __PORT__?: string | number;
-    __HOST__?: string;
-    __SESSION_ID__?: string;
-    __API_BASE_URL__?: string;
   }
 }
 
@@ -57,7 +53,7 @@ function isConfiguredToken(val: unknown): val is string {
  * Fails fast with a descriptive configuration error if unconfigured on a non-HTTP(S) protocol.
  */
 export function getRuntimePort(): string {
-  const cfgPort = window.__STUDIO_CONFIG__?.port ?? window.__PORT__;
+  const cfgPort = window.__STUDIO_CONFIG__?.port;
   if (isConfiguredToken(cfgPort)) {
     const portStr = String(cfgPort).trim();
     const portNum = Number(portStr);
@@ -89,7 +85,7 @@ export function getRuntimePort(): string {
  * Fails fast with a descriptive configuration error if unconfigured on a non-HTTP(S) protocol.
  */
 export function getRuntimeHost(): string {
-  const cfgHost = window.__STUDIO_CONFIG__?.host ?? window.__HOST__;
+  const cfgHost = window.__STUDIO_CONFIG__?.host;
   if (isConfiguredToken(cfgHost)) {
     return String(cfgHost).trim();
   }
@@ -110,14 +106,14 @@ export function getRuntimeHost(): string {
  * Resolve the base URL for all Paint Studio HTTP sidecar API calls.
  */
 export function getApiBaseUrl(): string {
-  const cfgBaseUrl = window.__STUDIO_CONFIG__?.apiBaseUrl ?? window.__API_BASE_URL__;
+  const cfgBaseUrl = window.__STUDIO_CONFIG__?.apiBaseUrl;
   if (isConfiguredToken(cfgBaseUrl)) {
     return String(cfgBaseUrl).trim().replace(/\/+$/, '');
   }
 
   const host = getRuntimeHost();
   const port = getRuntimePort();
-  const hasInjectedPort = isConfiguredToken(window.__STUDIO_CONFIG__?.port ?? window.__PORT__);
+  const hasInjectedPort = isConfiguredToken(window.__STUDIO_CONFIG__?.port);
   const scheme =
     !hasInjectedPort && window.location.protocol === 'https:' ? 'https' : 'http';
 
@@ -148,7 +144,7 @@ export function getInitialSessionId(): string {
     return querySessionId;
   }
 
-  const cfgSessionId = window.__STUDIO_CONFIG__?.sessionId ?? window.__SESSION_ID__;
+  const cfgSessionId = window.__STUDIO_CONFIG__?.sessionId;
   if (isConfiguredToken(cfgSessionId)) {
     const trimmed = String(cfgSessionId).trim();
     if (VALID_SESSION_ID_REGEX.test(trimmed)) {
@@ -198,7 +194,10 @@ export function setActiveSessionId(id: string): void {
     window.__STUDIO_CONFIG__.sessionId = trimmed;
   }
 
-  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+  if (
+    getStudioMode() === 'full' &&
+    (window.location.protocol === 'http:' || window.location.protocol === 'https:')
+  ) {
     const url = new URL(window.location.href);
     url.searchParams.set('session_id', trimmed);
     window.history.replaceState({}, '', url.toString());

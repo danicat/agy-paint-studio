@@ -22,9 +22,9 @@
   <title>Paint Studio</title>
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg" />
 </head>
-<body>
-  <div id="app" class="studio-container">
-    <div id="app-root" class="studio-container">
+<body class="studio-container studio-mode-preview">
+  <div id="app" class="studio-container studio-mode-preview">
+    <div id="app-root" class="studio-container studio-mode-preview">
       <!-- Top Header -->
       <header id="header-bar"></header>
 
@@ -44,7 +44,24 @@
       </div>
 
       <!-- Compact Bottom AI Refinement Bar (Preview Mode) -->
-      <footer id="preview-ai-bar" class="preview-ai-bar"></footer>
+      <footer id="preview-ai-bar" class="preview-ai-bar">
+        <div class="preview-preset-group" role="group" aria-label="Quick AI Presets">
+          <button type="button" class="btn btn-xs btn-outline preview-preset-btn" data-preview-preset="sketch" title="Polish sketch with clean linework and shading">✨ Sketch</button>
+          <button type="button" class="btn btn-xs btn-outline preview-preset-btn" data-preview-preset="ui_mockup" title="Transform into clean application UI mockup">🖥️ UI Mockup</button>
+          <button type="button" class="btn btn-xs btn-outline preview-preset-btn" data-preview-preset="diagram" title="Convert into crisp technical diagram">📐 Diagram</button>
+          <button type="button" class="btn btn-xs btn-outline preview-preset-btn" data-preview-preset="realistic" title="Render with photorealistic lighting and detail">🎨 Realistic</button>
+        </div>
+        <input
+          type="text"
+          id="preview-ai-prompt"
+          class="input-text preview-prompt-input"
+          placeholder="Describe AI changes or click a preset..."
+          aria-label="Quick AI refinement prompt"
+        />
+        <button type="button" id="btn-preview-ai-generate" class="btn btn-xs btn-ai-refine" title="Apply AI prompt to canvas">
+          <span>Refine</span>
+        </button>
+      </footer>
     </div>
   </div>
 

@@ -231,7 +231,7 @@ export class Header {
       </div>
 
       <div class="header-center">
-        <!-- Undo / Redo Quick Controls -->
+        <!-- Undo / Redo / Clear Quick Controls -->
         <div class="history-controls">
           <button id="undo-btn" class="icon-btn" title="Undo (⌘Z)" disabled>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -243,6 +243,13 @@ export class Header {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 7v6h-6"></path>
               <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
+            </svg>
+          </button>
+          <button id="clear-layer-btn" class="icon-btn" title="Clear Active Layer (⌫)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18"></path>
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
             </svg>
           </button>
         </div>
@@ -361,7 +368,7 @@ export class Header {
     });
 
     // Clear Active Layer (clears only the currently selected layer)
-    this.container.querySelector('#menu-clear-layer')?.addEventListener('click', () => {
+    const clearActiveLayer = () => {
       const active = this.engine.getActiveLayer();
       if (!active) return;
       if (active.locked) {
@@ -372,7 +379,9 @@ export class Header {
       this.engine.render();
       this.engine.commitHistory();
       NotificationManager.info(`Cleared active layer "${active.name}"`);
-    });
+    };
+    this.container.querySelector('#menu-clear-layer')?.addEventListener('click', clearActiveLayer);
+    this.container.querySelector('#clear-layer-btn')?.addEventListener('click', clearActiveLayer);
 
     // Resize Canvas
     this.container.querySelector('#menu-resize-canvas')?.addEventListener('click', () => {
@@ -477,12 +486,14 @@ export class Header {
   private bindPreviewAiBar() {
     const promptInput = document.getElementById('preview-ai-prompt') as HTMLInputElement | null;
     const generateBtn = document.getElementById('btn-preview-ai-generate') as HTMLButtonElement | null;
+    const presetButtons = document.querySelectorAll('.preview-preset-btn');
     if (!promptInput || !generateBtn) return;
 
-    const triggerQuickAi = async () => {
+    const triggerQuickAi = async (presetOverride?: string) => {
       const prompt = promptInput.value.trim();
-      if (!prompt) {
-        NotificationManager.info('Enter a prompt in the AI bar or click AI Refine for presets.');
+      const stylePreset = presetOverride || 'auto';
+      if (!presetOverride && !prompt) {
+        NotificationManager.info('Enter a prompt in the AI bar or click a style preset.');
         promptInput.focus();
         return;
       }
@@ -502,8 +513,8 @@ export class Header {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             image: base64Data,
-            stylePreset: 'auto',
-            prompt,
+            stylePreset,
+            prompt: prompt || undefined,
             width: this.engine.width,
             height: this.engine.height
           })
@@ -541,7 +552,8 @@ export class Header {
           image.src = imgSrc;
         });
 
-        const layerName = `AI Preview: ${prompt.substring(0, 24)}`;
+        const labelSource = prompt || presetOverride || 'Refine';
+        const layerName = `AI: ${labelSource.substring(0, 24)}`;
         const newLayer = this.engine.addLayer(layerName);
         newLayer.ctx.drawImage(img, 0, 0, this.engine.width, this.engine.height);
         this.engine.render();
@@ -559,6 +571,15 @@ export class Header {
 
     generateBtn.addEventListener('click', () => {
       triggerQuickAi();
+    });
+
+    presetButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const preset = btn.getAttribute('data-preview-preset');
+        if (preset) {
+          triggerQuickAi(preset);
+        }
+      });
     });
 
     promptInput.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -870,19 +891,32 @@ export class Header {
       }
       const psdResult = await psdRes.json();
 
-      // 3. Copy agent reference prompt to clipboard
-      const promptMessage = `I have created a new drawing in Agy Paint Studio and saved it to the session artifacts:\n- Composite Image: ${pngResult.path}\n- Layered PSD: ${psdResult.path}\nPlease inspect the image and proceed.`;
+      // 3. Deliver message directly to the active Antigravity chat session via /api/send-to-chat
+      const chatRes = await fetch(`${baseUrl}/api/send-to-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: this.sessionId,
+          filename: pngFilename,
+          note: `Layered PSD saved to session artifacts: ${psdResult.path}`
+        })
+      });
 
-      try {
-        await navigator.clipboard.writeText(promptMessage);
-        NotificationManager.success(
-          `Saved "${pngFilename}" & "${psdFilename}" to session artifacts! Prompt copied to clipboard.`
-        );
-      } catch {
-        NotificationManager.success(
-          `Saved "${pngFilename}" & "${psdFilename}" to session artifacts! Path: ${pngResult.path}`
-        );
+      if (!chatRes.ok) {
+        const errText = await chatRes.text();
+        let errDetail = errText || chatRes.statusText;
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed.error) errDetail = parsed.error;
+        } catch {
+          // keep raw errDetail
+        }
+        throw new Error(`Saved artifacts (${pngResult.path}), but failed to send to chat: ${errDetail}`);
       }
+
+      NotificationManager.success(
+        `Delivered "${pngFilename}" & "${psdFilename}" directly to Antigravity chat!`
+      );
     } catch (err: any) {
       console.error('[Header] Send to Agent failed:', err);
       NotificationManager.fatal('Send to Agent Failed', err);

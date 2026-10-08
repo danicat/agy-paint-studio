@@ -189,9 +189,9 @@ export function renderCanvasTemplate({ port, host = '127.0.0.1', sessionId } = {
   }
 
   let html = fs.readFileSync(templatePath, 'utf-8');
-  html = html.replace(/__PORT__/g, String(actualPort));
-  html = html.replace(/__HOST__/g, String(actualHost));
-  html = html.replace(/__SESSION_ID__/g, resolvedSessionId);
+  html = html.replace(/"__PORT__"/g, JSON.stringify(String(actualPort)));
+  html = html.replace(/"__HOST__"/g, JSON.stringify(String(actualHost)));
+  html = html.replace(/"__SESSION_ID__"/g, JSON.stringify(resolvedSessionId));
   return html;
 }
 

@@ -797,7 +797,24 @@ export class CanvasEngine {
     });
 
     window.addEventListener('resize', () => {
-      this.applyTransform();
+      this.fitToViewport();
     });
+
+    if (typeof ResizeObserver !== 'undefined') {
+      let lastWidth = 0;
+      let lastHeight = 0;
+      const ro = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const w = Math.round(entry.contentRect.width);
+          const h = Math.round(entry.contentRect.height);
+          if (w > 0 && h > 0 && (w !== lastWidth || h !== lastHeight)) {
+            lastWidth = w;
+            lastHeight = h;
+            this.fitToViewport();
+          }
+        }
+      });
+      ro.observe(this.container);
+    }
   }
 }
