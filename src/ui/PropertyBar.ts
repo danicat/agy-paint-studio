@@ -15,19 +15,16 @@
  */
 
 import type { CanvasEngine } from '../engine/CanvasEngine.ts';
-import { ShapeTool, type ShapeType } from '../engine/tools/ShapeTool.ts';
+import { ShapeTool } from '../engine/tools/ShapeTool.ts';
 import { SelectionTool } from '../engine/tools/SelectionTool.ts';
 import { DragTool } from '../engine/tools/DragTool.ts';
 import { BucketTool } from '../engine/tools/BucketTool.ts';
+import { TextTool } from '../engine/tools/TextTool.ts';
 
 export class PropertyBar {
   private engine: CanvasEngine;
   private container: HTMLElement;
 
-  private primaryColorInput: HTMLInputElement | null = null;
-  private secondaryColorInput: HTMLInputElement | null = null;
-  private primarySwatch: HTMLElement | null = null;
-  private secondarySwatch: HTMLElement | null = null;
   private sizeLabel: HTMLElement | null = null;
   private sizeSlider: HTMLInputElement | null = null;
   private sizeValueLabel: HTMLElement | null = null;
@@ -36,8 +33,6 @@ export class PropertyBar {
   private shapeOptionsContainer: HTMLElement | null = null;
   private selectionOptionsContainer: HTMLElement | null = null;
   private dragOptionsContainer: HTMLElement | null = null;
-  private activeToolNameLabel: HTMLElement | null = null;
-  private zoomValueLabel: HTMLElement | null = null;
 
   constructor(engine: CanvasEngine, container: HTMLElement) {
     this.engine = engine;
@@ -51,15 +46,7 @@ export class PropertyBar {
   private render() {
     this.container.innerHTML = `
       <div class="property-bar-inner" role="toolbar" aria-label="Tool Properties">
-        <!-- Active Tool Badge -->
-        <div class="prop-group prop-tool-badge">
-          <span class="prop-label">Tool</span>
-          <span id="prop-active-tool-name" class="prop-tool-name" aria-live="polite">Pencil</span>
-        </div>
-
-        <div class="prop-divider"></div>
-
-        <!-- Size Slider -->
+        <!-- Size / Font / Proximity Slider -->
         <div class="prop-group prop-slider-group" title="Brush / Stroke Width">
           <span class="prop-label" id="prop-size-label">Size</span>
           <input type="range" id="prop-brush-size" min="1" max="100" value="${this.engine.brushSize}" class="range-slider range-sm" aria-label="Brush or Stroke Size" />
@@ -77,19 +64,8 @@ export class PropertyBar {
 
         <div class="prop-divider"></div>
 
-        <!-- Color Controls -->
+        <!-- Quick Palette -->
         <div class="prop-group prop-color-group">
-          <div class="prop-swatches">
-            <div id="prop-primary-swatch" class="prop-swatch prop-primary" title="Primary Color">
-              <input type="color" id="prop-primary-color" value="${this.engine.primaryColor}" aria-label="Primary Foreground Color" />
-            </div>
-            <div id="prop-secondary-swatch" class="prop-swatch prop-secondary" title="Secondary Color">
-              <input type="color" id="prop-secondary-color" value="${this.engine.secondaryColor}" aria-label="Secondary Background Color" />
-            </div>
-            <button id="prop-btn-swap-colors" class="btn-swap-colors" title="Swap Colors (X)" aria-label="Swap Foreground and Background Colors">⇄</button>
-          </div>
-
-          <!-- Quick Palette -->
           <div class="prop-quick-palette" role="group" aria-label="Quick Color Palette">
             <div class="palette-dot" style="background:#09090b;" data-color="#09090b" title="Black" role="button" tabindex="0" aria-label="Select Black color"></div>
             <div class="palette-dot" style="background:#ffffff; border:1px solid #d4d4d8;" data-color="#ffffff" title="White" role="button" tabindex="0" aria-label="Select White color"></div>
@@ -107,16 +83,9 @@ export class PropertyBar {
         <!-- Contextual Tool Controls -->
         <div id="prop-shape-options" class="prop-context-group" style="display: none;">
           <div class="prop-divider"></div>
-          <span class="prop-label">Shape</span>
-          <select id="prop-shape-type" class="select-box select-xs" aria-label="Shape Type">
-            <option value="rect">Rectangle</option>
-            <option value="circle">Ellipse / Circle</option>
-            <option value="line">Line</option>
-            <option value="arrow">Arrow</option>
-          </select>
-          <label class="checkbox-label text-xs">
+          <label class="checkbox-label text-xs" title="Fill closed shape with Foreground Color">
             <input type="checkbox" id="prop-shape-fill" aria-label="Fill Shape" />
-            <span>Fill</span>
+            <span>Fill Shape</span>
           </label>
         </div>
 
@@ -132,16 +101,11 @@ export class PropertyBar {
 
         <div id="prop-drag-options" class="prop-context-group" style="display: none;">
           <div class="prop-divider"></div>
-          <button id="prop-drag-recenter" class="btn btn-xs btn-outline" title="Recenter & Fit View" aria-label="Recenter and Fit View">⛶ Recenter View</button>
-          <span id="prop-zoom-val" class="prop-value-pill" title="Current Zoom Level" aria-label="Current Zoom Level">${Math.round(this.engine.zoom * 100)}%</span>
+          <button id="prop-drag-recenter" class="btn btn-xs btn-outline" title="Recenter & Fit View (⌘9)" aria-label="Recenter and Fit View">⛶ Fit View</button>
         </div>
       </div>
     `;
 
-    this.primaryColorInput = this.container.querySelector('#prop-primary-color');
-    this.secondaryColorInput = this.container.querySelector('#prop-secondary-color');
-    this.primarySwatch = this.container.querySelector('#prop-primary-swatch');
-    this.secondarySwatch = this.container.querySelector('#prop-secondary-swatch');
     this.sizeLabel = this.container.querySelector('#prop-size-label');
     this.sizeSlider = this.container.querySelector('#prop-brush-size');
     this.sizeValueLabel = this.container.querySelector('#prop-brush-size-val');
@@ -150,19 +114,18 @@ export class PropertyBar {
     this.shapeOptionsContainer = this.container.querySelector('#prop-shape-options');
     this.selectionOptionsContainer = this.container.querySelector('#prop-selection-options');
     this.dragOptionsContainer = this.container.querySelector('#prop-drag-options');
-    this.activeToolNameLabel = this.container.querySelector('#prop-active-tool-name');
-    this.zoomValueLabel = this.container.querySelector('#prop-zoom-val');
-
-    this.updateColorSwatches();
   }
 
   private bindEvents() {
-    // Brush size / tolerance slider
+    // Brush size / font size / tolerance slider
     this.sizeSlider?.addEventListener('input', () => {
       const val = parseInt(this.sizeSlider!.value, 10);
       if (this.engine.activeTool instanceof BucketTool) {
         this.engine.activeTool.tolerance = val;
         if (this.sizeValueLabel) this.sizeValueLabel.textContent = `±${val}`;
+      } else if (this.engine.activeTool instanceof TextTool) {
+        this.engine.activeTool.fontSize = val;
+        if (this.sizeValueLabel) this.sizeValueLabel.textContent = `${val}px`;
       } else {
         this.engine.brushSize = val;
         if (this.sizeValueLabel) this.sizeValueLabel.textContent = `${val}px`;
@@ -176,35 +139,12 @@ export class PropertyBar {
       if (this.opacityValueLabel) this.opacityValueLabel.textContent = `${val}%`;
     });
 
-    // Color pickers
-    this.primaryColorInput?.addEventListener('input', () => {
-      this.engine.primaryColor = this.primaryColorInput!.value;
-      this.updateColorSwatches();
-      this.engine.notifyColorChange(this.engine.primaryColor);
-    });
-
-    this.secondaryColorInput?.addEventListener('input', () => {
-      this.engine.secondaryColor = this.secondaryColorInput!.value;
-      this.updateColorSwatches();
-      this.engine.notifyColorChange(this.engine.primaryColor);
-    });
-
-    // Swap Colors
-    this.container.querySelector('#prop-btn-swap-colors')?.addEventListener('click', () => {
-      const temp = this.engine.primaryColor;
-      this.engine.primaryColor = this.engine.secondaryColor;
-      this.engine.secondaryColor = temp;
-      this.updateColorSwatches();
-      this.engine.notifyColorChange(this.engine.primaryColor);
-    });
-
     // Quick palette dots
     this.container.querySelectorAll('.palette-dot').forEach((dot) => {
       const selectPaletteColor = () => {
         const color = dot.getAttribute('data-color');
         if (color) {
           this.engine.primaryColor = color;
-          this.updateColorSwatches();
           this.engine.notifyColorChange(color);
         }
       };
@@ -218,15 +158,7 @@ export class PropertyBar {
       });
     });
 
-    // Shape options
-    const shapeSelect = this.container.querySelector('#prop-shape-type') as HTMLSelectElement;
-    shapeSelect?.addEventListener('change', () => {
-      if (this.engine.activeTool instanceof ShapeTool) {
-        this.engine.activeTool.shapeType = shapeSelect.value as ShapeType;
-        this.engine.setTool(this.engine.activeTool);
-      }
-    });
-
+    // Shape fill option
     const shapeFillCheckbox = this.container.querySelector('#prop-shape-fill') as HTMLInputElement;
     shapeFillCheckbox?.addEventListener('change', () => {
       if (this.engine.activeTool instanceof ShapeTool) {
@@ -266,20 +198,9 @@ export class PropertyBar {
       this.engine.fitToViewport();
     });
 
-    // Engine multi-subscriber callbacks (never overwrite other listeners)
-    this.engine.addColorChangeListener((hex) => {
-      this.engine.primaryColor = hex;
-      this.updateColorSwatches();
-    });
-
+    // Engine multi-subscriber callbacks
     this.engine.addToolChangeListener((tool) => {
       this.syncActiveTool(tool);
-    });
-
-    this.engine.addZoomChangeListener((zoom) => {
-      if (this.zoomValueLabel) {
-        this.zoomValueLabel.textContent = `${Math.round(zoom * 100)}%`;
-      }
     });
   }
 
@@ -288,25 +209,17 @@ export class PropertyBar {
     if (!tool) return;
 
     const isShape = tool instanceof ShapeTool || tool.id === 'shape';
+    const isClosedShape =
+      isShape &&
+      tool instanceof ShapeTool &&
+      (tool.shapeType === 'rect' ||
+        tool.shapeType === 'rectangle' ||
+        tool.shapeType === 'circle' ||
+        tool.shapeType === 'ellipse');
     const isSelection = tool instanceof SelectionTool || tool.id === 'select';
     const isDrag = tool instanceof DragTool || tool.id === 'drag';
     const isBucket = tool instanceof BucketTool || tool.id === 'bucket';
-
-    if (this.activeToolNameLabel) {
-      if (isShape && tool instanceof ShapeTool) {
-        const shapeNames: Record<string, string> = {
-          rect: 'Rectangle',
-          rectangle: 'Rectangle',
-          circle: 'Ellipse',
-          ellipse: 'Ellipse',
-          line: 'Line',
-          arrow: 'Arrow'
-        };
-        this.activeToolNameLabel.textContent = shapeNames[tool.shapeType] || tool.name || 'Shapes';
-      } else {
-        this.activeToolNameLabel.textContent = tool.name || tool.id;
-      }
-    }
+    const isText = tool instanceof TextTool || tool.id === 'text';
 
     if (this.sizeLabel && this.sizeSlider && this.sizeValueLabel) {
       if (isBucket && tool instanceof BucketTool) {
@@ -317,6 +230,14 @@ export class PropertyBar {
         this.sizeSlider.max = '100';
         this.sizeSlider.value = String(tool.tolerance);
         this.sizeValueLabel.textContent = `±${tool.tolerance}`;
+      } else if (isText && tool instanceof TextTool) {
+        this.sizeLabel.textContent = 'Font';
+        this.sizeSlider.title = 'Text Font Size (8 - 120px)';
+        this.sizeSlider.setAttribute('aria-label', 'Text Font Size');
+        this.sizeSlider.min = '8';
+        this.sizeSlider.max = '120';
+        this.sizeSlider.value = String(tool.fontSize);
+        this.sizeValueLabel.textContent = `${tool.fontSize}px`;
       } else {
         this.sizeLabel.textContent = 'Size';
         this.sizeSlider.title = 'Brush / Stroke Width';
@@ -329,19 +250,9 @@ export class PropertyBar {
     }
 
     if (this.shapeOptionsContainer) {
-      this.shapeOptionsContainer.style.display = isShape ? 'flex' : 'none';
-      if (isShape && tool instanceof ShapeTool) {
-        const shapeSelect = this.container.querySelector('#prop-shape-type') as HTMLSelectElement;
+      this.shapeOptionsContainer.style.display = isClosedShape ? 'flex' : 'none';
+      if (isClosedShape && tool instanceof ShapeTool) {
         const shapeFill = this.container.querySelector('#prop-shape-fill') as HTMLInputElement;
-        if (shapeSelect) {
-          const normalizedShape =
-            tool.shapeType === 'rectangle'
-              ? 'rect'
-              : tool.shapeType === 'ellipse'
-              ? 'circle'
-              : tool.shapeType;
-          shapeSelect.value = normalizedShape;
-        }
         if (shapeFill) shapeFill.checked = tool.fill;
       }
     }
@@ -353,12 +264,5 @@ export class PropertyBar {
     if (this.dragOptionsContainer) {
       this.dragOptionsContainer.style.display = isDrag ? 'flex' : 'none';
     }
-  }
-
-  public updateColorSwatches() {
-    if (this.primarySwatch) this.primarySwatch.style.backgroundColor = this.engine.primaryColor;
-    if (this.secondarySwatch) this.secondarySwatch.style.backgroundColor = this.engine.secondaryColor;
-    if (this.primaryColorInput) this.primaryColorInput.value = this.engine.primaryColor;
-    if (this.secondaryColorInput) this.secondaryColorInput.value = this.engine.secondaryColor;
   }
 }

@@ -334,9 +334,6 @@ export function parsePsd(buffer: ArrayBuffer, engine?: CanvasEngine): PsdDocumen
     if (typeof engine.fitToViewport === 'function') {
       engine.fitToViewport();
     }
-    if (typeof engine.onLayersChange === 'function') {
-      engine.onLayersChange();
-    }
   }
 
   return {
@@ -344,13 +341,6 @@ export function parsePsd(buffer: ArrayBuffer, engine?: CanvasEngine): PsdDocumen
     height: psd.height,
     layers,
   };
-}
-
-/**
- * Load a PSD ArrayBuffer directly into a CanvasEngine instance.
- */
-export async function importPsd(buffer: ArrayBuffer, engine: CanvasEngine): Promise<void> {
-  parsePsd(buffer, engine);
 }
 
 /**
@@ -367,13 +357,6 @@ export function exportPsdFile(engine: CanvasEngine, filename = 'painting.psd'): 
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-/**
- * Trigger a browser download of the CanvasEngine layers as an Adobe Photoshop (.psd) file.
- */
-export function downloadPsd(engine: CanvasEngine, filename?: string): void {
-  exportPsdFile(engine, filename);
 }
 
 /**

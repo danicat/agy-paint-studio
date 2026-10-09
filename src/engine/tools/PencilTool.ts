@@ -30,25 +30,22 @@ export class PencilTool extends BaseTool {
     const layer = this.getWritableActiveLayer(engine);
     if (!layer) return;
 
+    const snappedPt: Point = { x: Math.floor(pt.x), y: Math.floor(pt.y) };
     this.isDrawing = true;
-    this.lastPt = pt;
+    this.lastPt = snappedPt;
 
     const opacity = Math.min(1.0, Math.max(0.01, engine.brushOpacity));
     engine.overlayCtx.clearRect(0, 0, engine.width, engine.height);
     engine.overlayCanvas.style.opacity = String(opacity);
 
+    const size = Math.max(1, Math.round(engine.brushSize));
     const ctx = engine.overlayCtx;
     ctx.save();
+    ctx.imageSmoothingEnabled = false;
     ctx.globalAlpha = 1.0;
     ctx.fillStyle = engine.primaryColor;
-    ctx.strokeStyle = engine.primaryColor;
-    ctx.lineWidth = Math.max(1, engine.brushSize);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, Math.max(0.5, engine.brushSize / 2), 0, Math.PI * 2);
-    ctx.fill();
+    const offset = Math.floor(size / 2);
+    ctx.fillRect(snappedPt.x - offset, snappedPt.y - offset, size, size);
     ctx.restore();
   }
 
@@ -57,21 +54,24 @@ export class PencilTool extends BaseTool {
     const layer = engine.getActiveLayer();
     if (!layer || !layer.visible || layer.locked) return;
 
+    const snappedPt: Point = { x: Math.floor(pt.x), y: Math.floor(pt.y) };
+    const size = Math.max(1, Math.round(engine.brushSize));
     const ctx = engine.overlayCtx;
     ctx.save();
+    ctx.imageSmoothingEnabled = false;
     ctx.globalAlpha = 1.0;
     ctx.strokeStyle = engine.primaryColor;
-    ctx.lineWidth = Math.max(1, engine.brushSize);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    ctx.lineWidth = size;
+    ctx.lineCap = 'square';
+    ctx.lineJoin = 'miter';
 
     ctx.beginPath();
     ctx.moveTo(this.lastPt.x, this.lastPt.y);
-    ctx.lineTo(pt.x, pt.y);
+    ctx.lineTo(snappedPt.x, snappedPt.y);
     ctx.stroke();
     ctx.restore();
 
-    this.lastPt = pt;
+    this.lastPt = snappedPt;
   }
 
   onPointerUp(engine: CanvasEngine): void {
@@ -96,6 +96,7 @@ export class PencilTool extends BaseTool {
     if (layer && layer.visible && !layer.locked) {
       const opacity = Math.min(1.0, Math.max(0.01, engine.brushOpacity));
       layer.ctx.save();
+      layer.ctx.imageSmoothingEnabled = false;
       layer.ctx.globalAlpha = opacity;
       layer.ctx.drawImage(engine.overlayCanvas, 0, 0);
       layer.ctx.restore();

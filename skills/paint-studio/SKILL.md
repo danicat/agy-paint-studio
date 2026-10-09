@@ -15,7 +15,7 @@ Execute this deterministic procedure immediately without running any prior check
    - **If already present**: Skip generation and proceed directly to step 2.
    - **If not yet present**: Fetch the dynamically rendered template from the running sidecar into your artifacts directory:
      ```bash
-     curl -sfS "http://127.0.0.1:7788/api/template?session_id=<SESSION_ID>" -o "<ARTIFACT_DIR>/paint-studio.html"
+     curl -sfS "http://127.0.0.1:7777/api/template?session_id=<SESSION_ID>" -o "<ARTIFACT_DIR>/paint-studio.html"
      ```
      *(Note: `<SESSION_ID>` is given under `Conversation ID:`. `<ARTIFACT_DIR>` is given under `Artifact Directory Path:`)*
 

@@ -270,4 +270,56 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     });
     assert.strictEqual(badPresetRes.status, 400);
   });
+
+  test('GET /api/fs/info and POST /api/fs/save save PSD and raster files to filesystem and block disallowed extensions/paths', async () => {
+    const infoRes = await fetch(`${baseUrl}/api/fs/info?session_id=valid-session-1`);
+    assert.strictEqual(infoRes.status, 200);
+    const infoData = await infoRes.json();
+    assert.ok(infoData.workspaceDir);
+    assert.ok(infoData.sessionDir);
+
+    // Save PSD to workspaceDir
+    const psdStubBase64 = Buffer.from('8BPS\x00\x01', 'binary').toString('base64');
+    const savePsdRes = await fetch(`${baseUrl}/api/fs/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        directory: workspaceRoot,
+        filename: 'saved-project.psd',
+        data: psdStubBase64,
+      }),
+    });
+    assert.strictEqual(savePsdRes.status, 200);
+    const savePsdData = await savePsdRes.json();
+    assert.strictEqual(savePsdData.success, true);
+    assert.ok(fs.existsSync(savePsdData.path));
+
+    // Save PNG to workspaceDir
+    const savePngRes = await fetch(`${baseUrl}/api/fs/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        directory: workspaceRoot,
+        filename: 'exported.png',
+        data: testPngBase64,
+      }),
+    });
+    assert.strictEqual(savePngRes.status, 200);
+    const savePngData = await savePngRes.json();
+    assert.strictEqual(savePngData.success, true);
+    assert.ok(fs.existsSync(savePngData.path));
+
+    // Block saving outside user/workspace directories
+    const badPathRes = await fetch(`${baseUrl}/api/fs/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        directory: '/etc',
+        filename: 'forbidden.png',
+        data: testPngBase64,
+      }),
+    });
+    assert.strictEqual(badPathRes.status, 403);
+  });
 });
+

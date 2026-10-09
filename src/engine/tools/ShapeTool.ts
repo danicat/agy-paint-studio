@@ -141,7 +141,7 @@ export class ShapeTool extends BaseTool {
     ctx.save();
     ctx.globalAlpha = Math.min(1.0, Math.max(0.01, engine.brushOpacity));
     ctx.strokeStyle = engine.primaryColor;
-    ctx.fillStyle = this.fill ? engine.secondaryColor : 'transparent';
+    ctx.fillStyle = this.fill ? engine.primaryColor : 'transparent';
     ctx.lineWidth = Math.max(1, engine.brushSize);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';

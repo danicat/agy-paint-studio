@@ -16,7 +16,7 @@
 
 import { defineConfig } from 'vite';
 
-const port = parseInt(process.env.PORT || '7788', 10);
+const port = parseInt(process.env.PORT || '7777', 10);
 const host = '127.0.0.1';
 
 export default defineConfig({

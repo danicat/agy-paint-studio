@@ -56,19 +56,30 @@ export class BrushTool extends BaseTool {
     if (this.points.length < 2) return;
 
     const ctx = engine.overlayCtx;
+    ctx.clearRect(0, 0, engine.width, engine.height);
     ctx.save();
+    ctx.imageSmoothingEnabled = true;
     ctx.globalAlpha = 1.0;
     ctx.strokeStyle = engine.primaryColor;
     ctx.lineWidth = Math.max(1, engine.brushSize);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    const p1 = this.points[this.points.length - 2];
-    const p2 = this.points[this.points.length - 1];
-
     ctx.beginPath();
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
+    ctx.moveTo(this.points[0].x, this.points[0].y);
+
+    if (this.points.length === 2) {
+      ctx.lineTo(this.points[1].x, this.points[1].y);
+    } else {
+      for (let i = 1; i < this.points.length - 1; i++) {
+        const midX = (this.points[i].x + this.points[i + 1].x) / 2;
+        const midY = (this.points[i].y + this.points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(this.points[i].x, this.points[i].y, midX, midY);
+      }
+      const last = this.points[this.points.length - 1];
+      ctx.lineTo(last.x, last.y);
+    }
+
     ctx.stroke();
     ctx.restore();
   }

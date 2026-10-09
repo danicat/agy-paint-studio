@@ -16,34 +16,18 @@
 
 import type { CanvasEngine } from '../engine/CanvasEngine.ts';
 import type { BaseTool } from '../engine/tools/BaseTool.ts';
-import { BrushTool } from '../engine/tools/BrushTool.ts';
-import { PencilTool } from '../engine/tools/PencilTool.ts';
-import { EraserTool } from '../engine/tools/EraserTool.ts';
-import { BucketTool } from '../engine/tools/BucketTool.ts';
 import { SelectionTool } from '../engine/tools/SelectionTool.ts';
-import { ShapeTool, type ShapeType } from '../engine/tools/ShapeTool.ts';
+import { ShapeTool } from '../engine/tools/ShapeTool.ts';
 import { TextTool } from '../engine/tools/TextTool.ts';
-import { EyedropperTool } from '../engine/tools/EyedropperTool.ts';
-import { DragTool } from '../engine/tools/DragTool.ts';
+import { BucketTool } from '../engine/tools/BucketTool.ts';
 
 export class Toolbar {
   private engine: CanvasEngine;
   private container: HTMLElement;
-
-  private selectionTool = new SelectionTool();
-  private brushTool = new BrushTool();
-  private pencilTool = new PencilTool();
-  private eraserTool = new EraserTool();
-  private shapeTool = new ShapeTool();
-  private textTool = new TextTool();
-  private bucketTool = new BucketTool();
-  private eyedropperTool = new EyedropperTool();
-  private dragTool = new DragTool();
-
-  private fgSwatchEl: HTMLElement | null = null;
-  private bgSwatchEl: HTMLElement | null = null;
-  private fgColorInput: HTMLInputElement | null = null;
-  private bgColorInput: HTMLInputElement | null = null;
+  private primaryColorInput: HTMLInputElement | null = null;
+  private secondaryColorInput: HTMLInputElement | null = null;
+  private primarySwatch: HTMLElement | null = null;
+  private secondarySwatch: HTMLElement | null = null;
 
   constructor(engine: CanvasEngine, container: HTMLElement) {
     this.engine = engine;
@@ -96,7 +80,7 @@ export class Toolbar {
         <!-- 4. Eraser (E) -->
         <button id="tool-eraser" data-tool="eraser" class="tool-btn" title="Eraser (E)" aria-label="Eraser (E)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path>
+            <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 1-2.5 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path>
             <path d="M22 21H7"></path>
             <path d="m5 11 9 9"></path>
           </svg>
@@ -170,79 +154,36 @@ export class Toolbar {
         </button>
       </div>
 
-      <div class="toolbar-divider"></div>
-
-      <!-- Foreground / Background Color Wells & Swap (X) -->
-      <div class="toolbar-section tools-group toolbar-colors-group" role="group" aria-label="Color Wells" style="margin-top: auto; padding-bottom: 4px;">
-        <div id="toolbar-fg-swatch" class="prop-swatch prop-primary" title="Foreground Color" style="width: 26px; height: 26px;">
-          <input type="color" id="toolbar-fg-color" value="${this.engine.primaryColor}" aria-label="Foreground Color" />
+      <!-- Foreground / Background Color Selector & Swapper Dock -->
+      <div class="toolbar-color-dock" role="group" aria-label="Foreground and Background Colors">
+        <div class="toolbar-color-wells">
+          <div id="prop-primary-swatch" class="prop-swatch toolbar-swatch-primary" title="Primary Foreground Color">
+            <input type="color" id="prop-primary-color" value="${this.engine.primaryColor}" aria-label="Primary Foreground Color" />
+          </div>
+          <div id="prop-secondary-swatch" class="prop-swatch toolbar-swatch-secondary" title="Secondary Background Color">
+            <input type="color" id="prop-secondary-color" value="${this.engine.secondaryColor}" aria-label="Secondary Background Color" />
+          </div>
+          <button id="prop-btn-swap-colors" class="btn-swap-colors" title="Swap Colors (X)" aria-label="Swap Foreground and Background Colors">⇄</button>
         </div>
-        <div id="toolbar-bg-swatch" class="prop-swatch prop-secondary" title="Background Color" style="width: 22px; height: 22px;">
-          <input type="color" id="toolbar-bg-color" value="${this.engine.secondaryColor}" aria-label="Background Color" />
-        </div>
-        <button id="toolbar-swap-colors" class="btn-swap-colors" title="Swap Foreground / Background Colors (X)" aria-label="Swap Foreground and Background Colors (X)" style="width: 24px; height: 20px;">⇄</button>
       </div>
     `;
 
-    this.fgSwatchEl = this.container.querySelector('#toolbar-fg-swatch');
-    this.bgSwatchEl = this.container.querySelector('#toolbar-bg-swatch');
-    this.fgColorInput = this.container.querySelector('#toolbar-fg-color');
-    this.bgColorInput = this.container.querySelector('#toolbar-bg-color');
-
-    this.updateColorWells();
+    this.primaryColorInput = this.container.querySelector('#prop-primary-color');
+    this.secondaryColorInput = this.container.querySelector('#prop-secondary-color');
+    this.primarySwatch = this.container.querySelector('#prop-primary-swatch');
+    this.secondarySwatch = this.container.querySelector('#prop-secondary-swatch');
+    this.updateColorSwatches();
   }
 
-  public setShapeType(type: ShapeType): void {
-    this.shapeTool.shapeType = type;
+  public updateColorSwatches(): void {
+    if (this.primarySwatch) this.primarySwatch.style.backgroundColor = this.engine.primaryColor;
+    if (this.secondarySwatch) this.secondarySwatch.style.backgroundColor = this.engine.secondaryColor;
+    if (this.primaryColorInput) this.primaryColorInput.value = this.engine.primaryColor;
+    if (this.secondaryColorInput) this.secondaryColorInput.value = this.engine.secondaryColor;
   }
 
   public activateTool(toolId: string): void {
-    switch (toolId) {
-      case 'select':
-        this.engine.setTool(this.selectionTool);
-        break;
-      case 'brush':
-        this.engine.setTool(this.brushTool);
-        break;
-      case 'pencil':
-        this.engine.setTool(this.pencilTool);
-        break;
-      case 'eraser':
-        this.engine.setTool(this.eraserTool);
-        break;
-      case 'rect':
-      case 'rectangle':
-        this.setShapeType('rect');
-        this.engine.setTool(this.shapeTool);
-        break;
-      case 'circle':
-      case 'ellipse':
-        this.setShapeType('circle');
-        this.engine.setTool(this.shapeTool);
-        break;
-      case 'line':
-        this.setShapeType('line');
-        this.engine.setTool(this.shapeTool);
-        break;
-      case 'arrow':
-        this.setShapeType('arrow');
-        this.engine.setTool(this.shapeTool);
-        break;
-      case 'text':
-        this.engine.setTool(this.textTool);
-        break;
-      case 'bucket':
-        this.engine.setTool(this.bucketTool);
-        break;
-      case 'eyedropper':
-        this.engine.setTool(this.eyedropperTool);
-        break;
-      case 'drag':
-        this.engine.setTool(this.dragTool);
-        break;
-      default:
-        throw new Error(`Unknown toolbar tool ID: "${toolId}"`);
-    }
+    this.engine.setTool(toolId);
     this.syncActiveButton(this.engine.activeTool);
   }
 
@@ -272,15 +213,8 @@ export class Toolbar {
     const temp = this.engine.primaryColor;
     this.engine.primaryColor = this.engine.secondaryColor;
     this.engine.secondaryColor = temp;
-    this.updateColorWells();
+    this.updateColorSwatches();
     this.engine.notifyColorChange(this.engine.primaryColor);
-  }
-
-  public updateColorWells(): void {
-    if (this.fgSwatchEl) this.fgSwatchEl.style.backgroundColor = this.engine.primaryColor;
-    if (this.bgSwatchEl) this.bgSwatchEl.style.backgroundColor = this.engine.secondaryColor;
-    if (this.fgColorInput) this.fgColorInput.value = this.engine.primaryColor;
-    if (this.bgColorInput) this.bgColorInput.value = this.engine.secondaryColor;
   }
 
   public resetView(): void {
@@ -313,6 +247,18 @@ export class Toolbar {
     return false;
   }
 
+  private adjustActiveToolSize(delta: number): void {
+    const tool = this.engine.activeTool;
+    if (tool instanceof TextTool) {
+      tool.fontSize = Math.max(8, Math.min(120, tool.fontSize + delta));
+    } else if (tool instanceof BucketTool) {
+      tool.tolerance = Math.max(0, Math.min(100, tool.tolerance + delta));
+    } else {
+      this.engine.brushSize = Math.max(1, Math.min(100, this.engine.brushSize + delta));
+    }
+    this.engine.setTool(this.engine.activeTool);
+  }
+
   private bindEvents(): void {
     // Tool button click listeners
     this.container.querySelectorAll('.tool-btn').forEach((btn) => {
@@ -324,30 +270,30 @@ export class Toolbar {
       });
     });
 
-    // Color wells & swap button
-    this.fgColorInput?.addEventListener('input', () => {
-      this.engine.primaryColor = this.fgColorInput!.value;
-      this.updateColorWells();
+    // Color pickers & swap button
+    this.primaryColorInput?.addEventListener('input', () => {
+      this.engine.primaryColor = this.primaryColorInput!.value;
+      this.updateColorSwatches();
       this.engine.notifyColorChange(this.engine.primaryColor);
     });
 
-    this.bgColorInput?.addEventListener('input', () => {
-      this.engine.secondaryColor = this.bgColorInput!.value;
-      this.updateColorWells();
+    this.secondaryColorInput?.addEventListener('input', () => {
+      this.engine.secondaryColor = this.secondaryColorInput!.value;
+      this.updateColorSwatches();
       this.engine.notifyColorChange(this.engine.primaryColor);
     });
 
-    this.container.querySelector('#toolbar-swap-colors')?.addEventListener('click', () => {
+    this.container.querySelector('#prop-btn-swap-colors')?.addEventListener('click', () => {
       this.swapColors();
     });
 
-    // Subscribe to programmatic tool & color changes on engine
-    this.engine.addToolChangeListener((toolOrId) => {
-      this.syncActiveButton(toolOrId);
+    this.engine.addColorChangeListener(() => {
+      this.updateColorSwatches();
     });
 
-    this.engine.addColorChangeListener(() => {
-      this.updateColorWells();
+    // Subscribe to programmatic tool changes on engine
+    this.engine.addToolChangeListener((toolOrId) => {
+      this.syncActiveButton(toolOrId);
     });
 
     // Keyboard Shortcuts
@@ -434,12 +380,10 @@ export class Toolbar {
           this.swapColors();
           break;
         case '[':
-          this.engine.brushSize = Math.max(1, this.engine.brushSize - 2);
-          this.engine.setTool(this.engine.activeTool);
+          this.adjustActiveToolSize(-2);
           break;
         case ']':
-          this.engine.brushSize = Math.min(100, this.engine.brushSize + 2);
-          this.engine.setTool(this.engine.activeTool);
+          this.adjustActiveToolSize(2);
           break;
         case '-':
           this.engine.zoomAt(-0.15);

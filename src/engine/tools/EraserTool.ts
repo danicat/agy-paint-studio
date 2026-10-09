@@ -21,6 +21,7 @@ import type { Layer } from '../Layer.ts';
 export class EraserTool extends BaseTool {
   private isDrawing = false;
   private lastPt: Point | null = null;
+  private strokeBaseImageData: ImageData | null = null;
 
   constructor() {
     super('eraser', 'Eraser', 'crosshair');
@@ -32,17 +33,21 @@ export class EraserTool extends BaseTool {
 
     this.isDrawing = true;
     this.lastPt = pt;
+    this.strokeBaseImageData = layer.ctx.getImageData(0, 0, engine.width, engine.height);
 
-    const ctx = layer.ctx;
-    ctx.save();
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, Math.max(0.5, engine.brushSize / 2), 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    layer.markDirty();
+    engine.overlayCtx.clearRect(0, 0, engine.width, engine.height);
+    engine.overlayCanvas.style.opacity = '0';
 
-    engine.render();
+    const mCtx = engine.overlayCtx;
+    mCtx.save();
+    mCtx.globalAlpha = 1.0;
+    mCtx.fillStyle = '#000000';
+    mCtx.beginPath();
+    mCtx.arc(pt.x, pt.y, Math.max(0.5, engine.brushSize / 2), 0, Math.PI * 2);
+    mCtx.fill();
+    mCtx.restore();
+
+    this.applyErasePreview(engine, layer);
   }
 
   onPointerMove(engine: CanvasEngine, pt: Point): void {
@@ -50,41 +55,61 @@ export class EraserTool extends BaseTool {
     const layer = engine.getActiveLayer();
     if (!layer || !layer.visible || layer.locked) return;
 
-    const ctx = layer.ctx;
-    ctx.save();
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.lineWidth = Math.max(1, engine.brushSize);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    const mCtx = engine.overlayCtx;
+    mCtx.save();
+    mCtx.globalAlpha = 1.0;
+    mCtx.strokeStyle = '#000000';
+    mCtx.lineWidth = Math.max(1, engine.brushSize);
+    mCtx.lineCap = 'round';
+    mCtx.lineJoin = 'round';
 
-    ctx.beginPath();
-    ctx.moveTo(this.lastPt.x, this.lastPt.y);
-    ctx.lineTo(pt.x, pt.y);
-    ctx.stroke();
-    ctx.restore();
-    layer.markDirty();
+    mCtx.beginPath();
+    mCtx.moveTo(this.lastPt.x, this.lastPt.y);
+    mCtx.lineTo(pt.x, pt.y);
+    mCtx.stroke();
+    mCtx.restore();
 
     this.lastPt = pt;
-    engine.render();
+    this.applyErasePreview(engine, layer);
   }
 
   onPointerUp(engine: CanvasEngine): void {
     if (this.isDrawing) {
-      this.isDrawing = false;
-      this.lastPt = null;
-      engine.overlayCanvas.style.opacity = '1';
-      engine.commitHistory();
+      this.finishStroke(engine);
     }
   }
 
   deactivate(engine: CanvasEngine): void {
     if (this.isDrawing) {
-      this.isDrawing = false;
-      this.lastPt = null;
-      engine.commitHistory();
+      this.finishStroke(engine);
     } else {
       this.lastPt = null;
+      this.strokeBaseImageData = null;
+      engine.overlayCanvas.style.opacity = '1';
     }
+  }
+
+  private applyErasePreview(engine: CanvasEngine, layer: Layer): void {
+    if (this.strokeBaseImageData) {
+      layer.ctx.putImageData(this.strokeBaseImageData, 0, 0);
+    }
+    const opacity = Math.min(1.0, Math.max(0.01, engine.brushOpacity));
+    layer.ctx.save();
+    layer.ctx.globalCompositeOperation = 'destination-out';
+    layer.ctx.globalAlpha = opacity;
+    layer.ctx.drawImage(engine.overlayCanvas, 0, 0);
+    layer.ctx.restore();
+    layer.markDirty();
+    engine.render();
+  }
+
+  private finishStroke(engine: CanvasEngine): void {
+    this.isDrawing = false;
+    this.lastPt = null;
+    this.strokeBaseImageData = null;
+    engine.overlayCtx.clearRect(0, 0, engine.width, engine.height);
     engine.overlayCanvas.style.opacity = '1';
+    engine.render();
+    engine.commitHistory();
   }
 }

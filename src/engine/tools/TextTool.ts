@@ -178,7 +178,7 @@ export class TextTool extends BaseTool {
     ctx.save();
     ctx.globalAlpha = Math.min(1.0, Math.max(0.01, engine.brushOpacity));
     ctx.fillStyle = engine.primaryColor;
-    ctx.font = `${Math.max(12, this.fontSize)}px ${this.fontFamily}`;
+    ctx.font = `${Math.max(8, this.fontSize)}px ${this.fontFamily}`;
     ctx.textBaseline = 'top';
     ctx.fillText(text, pt.x, pt.y);
     ctx.restore();

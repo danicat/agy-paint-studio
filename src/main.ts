@@ -21,27 +21,34 @@ import { Toolbar } from './ui/Toolbar.ts';
 import { PropertyBar } from './ui/PropertyBar.ts';
 import { LayerPanel } from './ui/LayerPanel.ts';
 import { NotificationManager } from './ui/Notification.ts';
-import { getStudioMode, getFullStudioUrl, onSessionChange } from './utils/api.ts';
+import {
+  getStudioMode,
+  type StudioMode
+} from './utils/api.ts';
+
+function applyStudioModeClasses(mode: StudioMode): void {
+  const modeClass = mode === 'preview' ? 'studio-mode-preview' : 'studio-mode-full';
+
+  document.body.classList.remove('studio-mode-preview', 'studio-mode-full');
+  document.body.classList.add('studio-container', modeClass);
+
+  const appEl = document.getElementById('app');
+  if (appEl) {
+    appEl.classList.remove('studio-mode-preview', 'studio-mode-full');
+    appEl.classList.add('studio-container', modeClass);
+  }
+
+  const appRootEl = document.getElementById('app-root');
+  if (appRootEl) {
+    appRootEl.classList.remove('studio-mode-preview', 'studio-mode-full');
+    appRootEl.classList.add('studio-container', modeClass);
+  }
+}
 
 function initStudio(): void {
   try {
     const mode = getStudioMode();
-    const modeClass = mode === 'preview' ? 'studio-mode-preview' : 'studio-mode-full';
-
-    document.body.classList.remove('studio-mode-preview', 'studio-mode-full');
-    document.body.classList.add('studio-container', modeClass);
-
-    const appEl = document.getElementById('app');
-    if (appEl) {
-      appEl.classList.remove('studio-mode-preview', 'studio-mode-full');
-      appEl.classList.add('studio-container', modeClass);
-    }
-
-    const appRootEl = document.getElementById('app-root');
-    if (appRootEl) {
-      appRootEl.classList.remove('studio-mode-preview', 'studio-mode-full');
-      appRootEl.classList.add('studio-container', modeClass);
-    }
+    applyStudioModeClasses(mode);
 
     const viewportContainer = document.getElementById('canvas-viewport-container');
     const headerBar = document.getElementById('header-bar');
@@ -68,23 +75,12 @@ function initStudio(): void {
     const engine = new CanvasEngine(viewportContainer, 800, 600);
 
     // Initialize UI Panels
-    const header = new Header(engine, headerBar);
+    new Header(engine, headerBar);
     if (propertyBarContainer) {
       new PropertyBar(engine, propertyBarContainer);
     }
     new Toolbar(engine, toolbarContainer);
     new LayerPanel(engine, layersContainer);
-
-    const fullStudioLink = document.getElementById('btn-full-studio') as HTMLAnchorElement | null;
-    if (fullStudioLink) {
-      fullStudioLink.href = getFullStudioUrl();
-      onSessionChange(() => {
-        fullStudioLink.href = getFullStudioUrl();
-      });
-      header.onSessionChange = () => {
-        fullStudioLink.href = getFullStudioUrl();
-      };
-    }
 
     // Re-fit viewport once layout mode classes have settled
     requestAnimationFrame(() => {

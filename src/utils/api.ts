@@ -34,6 +34,8 @@ declare global {
   }
 }
 
+export type StudioMode = 'preview' | 'full';
+
 let activeSessionId: string | null = null;
 const sessionChangeListeners: Array<(sessionId: string) => void> = [];
 
@@ -209,13 +211,6 @@ export function setActiveSessionId(id: string): void {
 }
 
 /**
- * Alias for setActiveSessionId() for callers updating the active session.
- */
-export function setSessionId(id: string): void {
-  setActiveSessionId(id);
-}
-
-/**
  * Subscribe to active session ID changes.
  */
 export function onSessionChange(cb: (sessionId: string) => void): void {
@@ -223,9 +218,9 @@ export function onSessionChange(cb: (sessionId: string) => void): void {
 }
 
 /**
- * Determine whether the studio is running in inline 'preview' mode or 'full' studio mode.
+ * Resolve the initial studio view mode ('preview' or 'full') from environment.
  */
-export function getStudioMode(): 'preview' | 'full' {
+function resolveInitialStudioMode(): StudioMode {
   const modeParam = new URLSearchParams(window.location.search).get('mode');
   if (modeParam === 'preview') {
     return 'preview';
@@ -258,6 +253,13 @@ export function getStudioMode(): 'preview' | 'full' {
   }
 
   return 'full';
+}
+
+/**
+ * Determine whether the studio is running in inline 'preview' mode or 'full' studio mode.
+ */
+export function getStudioMode(): StudioMode {
+  return resolveInitialStudioMode();
 }
 
 /**

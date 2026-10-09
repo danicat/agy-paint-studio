@@ -23,11 +23,6 @@ export class DragTool extends BaseTool {
   private startClientY = 0;
   private startPanX = 0;
   private startPanY = 0;
-  private lastClickTime = 0;
-  private lastClickClientX = 0;
-  private lastClickClientY = 0;
-  private didMoveOnLastDrag = false;
-  private currentDragMoved = false;
 
   constructor() {
     super('drag', 'Drag / Pan View (H)', 'grab');
@@ -35,28 +30,6 @@ export class DragTool extends BaseTool {
 
   onPointerDown(engine: CanvasEngine, _pt: Point, originalEvent: MouseEvent | TouchEvent): void {
     const { clientX, clientY } = this.getClientCoordinates(originalEvent);
-    const now = Date.now();
-    const clickDist = Math.hypot(clientX - this.lastClickClientX, clientY - this.lastClickClientY);
-
-    // Double click to recenter and fit view only if previous click did not pan
-    if (
-      !this.didMoveOnLastDrag &&
-      this.lastClickTime > 0 &&
-      now - this.lastClickTime <= 300 &&
-      clickDist <= 6
-    ) {
-      engine.fitToViewport();
-      this.lastClickTime = 0;
-      this.didMoveOnLastDrag = false;
-      this.currentDragMoved = false;
-      this.isDragging = false;
-      return;
-    }
-
-    this.lastClickTime = now;
-    this.lastClickClientX = clientX;
-    this.lastClickClientY = clientY;
-    this.currentDragMoved = false;
 
     this.isDragging = true;
     this.startClientX = clientX;
@@ -75,11 +48,6 @@ export class DragTool extends BaseTool {
     const dx = clientX - this.startClientX;
     const dy = clientY - this.startClientY;
 
-    if (dx !== 0 || dy !== 0) {
-      this.currentDragMoved = true;
-      this.didMoveOnLastDrag = true;
-    }
-
     engine.panX = this.startPanX + dx;
     engine.panY = this.startPanY + dy;
     engine.applyTransform();
@@ -88,7 +56,6 @@ export class DragTool extends BaseTool {
   onPointerUp(engine: CanvasEngine): void {
     if (this.isDragging) {
       this.isDragging = false;
-      this.didMoveOnLastDrag = this.currentDragMoved;
       engine.overlayCanvas.style.cursor = 'grab';
       engine.container.style.cursor = 'grab';
     }
@@ -96,8 +63,6 @@ export class DragTool extends BaseTool {
 
   deactivate(engine: CanvasEngine): void {
     this.isDragging = false;
-    this.currentDragMoved = false;
-    this.didMoveOnLastDrag = false;
     engine.overlayCanvas.style.cursor = 'crosshair';
     engine.container.style.cursor = 'default';
   }

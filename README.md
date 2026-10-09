@@ -7,29 +7,28 @@
 ## Highlights
 
 - **Dual View Modes**:
-  - **Inline Preview Card (`?mode=preview`)**: Compact generative UI card embedded directly in the Antigravity chat stream via `<agent-embed>` for quick sketching and live canvas preview.
-  - **Full Studio (`?mode=full`)**: Dedicated multi-panel workspace with full toolbars, layer stack management, and history controls.
+  - **Inline Preview Card (`?mode=preview`)**: Compact generative UI card embedded directly in the Antigravity chat stream via `<agent-embed>`, rendered as a clean subset of the Full Studio UI.
+  - **Full Studio (`?mode=full`)**: Dedicated multi-panel workspace with menus, session artifacts browser, and layer stack management. Toggle between Preview and Full mode in-place or open Full Studio in a new browser tab.
 - **Photoshop (`.psd`) Compatibility**: Open and export multi-layer PSD files with full layer hierarchy, opacity, and blend modes using `ag-psd` and `sharp`.
-- **Always-On Sidecar**: Supervised by Antigravity on port `7788`, configured via `sidecars/studio/sidecar.json`.
+- **Always-On Sidecar**: Supervised by Antigravity on port `7777`, configured via `sidecars/studio/sidecar.json`.
 - **Complete Creative Tool Suite**:
-  - **Pencil & Brush**: Fine pixel pencil and smooth variable-radius brush with opacity control.
-  - **Eraser**: Pixel clearing using `destination-out`.
-  - **Paint Bucket**: 4-way BFS flood fill with color tolerance.
-  - **Marquee Selection**: Rectangular selection, cut, copy, paste, move, and clear pixels.
-  - **Vector Shapes**: Lines, rectangles, and ellipses (stroked or filled) with live overlay preview.
-  - **Text Tool**: Render text directly onto active layers.
-  - **Eyedropper**: Sample composite colors directly from the canvas.
+  - **Smooth Brush (`B`) & Pixel Pencil (`P`)**: Quadratic Bezier smoothed brush and crisp pixel-aligned hard-edged pencil with size and opacity controls.
+  - **Eraser (`E`)**: Variable-opacity pixel erasing using `destination-out`.
+  - **Paint Bucket (`G`)**: Scanline flood fill with configurable color proximity threshold (`0–100`).
+  - **Marquee Selection (`V`)**: Rectangular selection, cut, copy, paste, move, and clear pixels.
+  - **Vector Shapes (`U`, `O`, `L`, `A`)**: Rectangles, ellipses, lines, and arrows (stroked or filled, with `Shift` angle/aspect snapping) and live overlay preview.
+  - **Text Tool (`T`)**: Render configurable-size text (`8–120px`) directly onto active layers.
+  - **Eyedropper (`I`) & Drag/Pan (`H`)**: Sample composite colors directly from the canvas and pan/zoom the viewport.
 - **Full Layer Management**:
   - Add, duplicate, delete, and reorder layers.
-  - Toggle visibility, adjust opacity (0–100%), and set blend modes (*Normal, Multiply, Screen, Overlay, Darken, Lighten, Color Dodge, Hard Light*, etc.).
+  - Toggle visibility, lock layers, adjust opacity (0–100%), and set blend modes (*Normal, Multiply, Screen, Overlay, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light, Difference, Exclusion*).
   - Merge down and flatten image.
 - **Session Artifacts Integration**: Browse, preview, open, and export drawings directly to and from the active Antigravity session brain directory (`<appDataDir>/brain/<session_id>/`).
-- **Instant "Send to Chat"**: Saves the artwork as a session artifact and invokes the `agentapi` CLI to post the image into the active conversation.
+- **Instant "Send to Agent"**: Saves both PNG and layered PSD artifacts to the session directory and invokes the `agentapi` CLI to post the artwork into the active conversation.
 - **AI Refinement (`gemini-3.1-flash-lite-image`)**:
-  - **Beautify**: Cleans up, polishes, and renders sketches into high-fidelity digital illustrations.
-  - **Watercolour**: Generates an expressive, organic watercolour interpretation.
+  - Six style presets (**Auto**, **UI Mockup**, **Diagram**, **Icon**, **Sketch**, **Realistic**) plus custom creative prompts.
   - Authenticates via Google Cloud Vertex AI Application Default Credentials (ADC).
-  - Inserts generated artwork non-destructively as a new layer.
+  - Inserts generated artwork non-destructively as a new layer or replaces the active layer.
 
 ---
 
@@ -44,7 +43,7 @@ agy-paint-studio/
 ├── index.html                         # Studio shell HTML
 ├── sidecars/
 │   └── studio/
-│       ├── sidecar.json               # Always-on sidecar specification (PORT 7788)
+│       ├── sidecar.json               # Always-on sidecar specification (PORT 7777)
 │       └── run.mjs                    # Sidecar startup entrypoint
 ├── scripts/
 │   └── bundle-studio-artifact.mjs     # Self-contained HTML artifact bundler
@@ -90,7 +89,7 @@ npm run build
 
 ### 2. Sidecar Configuration
 
-The sidecar server runs on `127.0.0.1:7788` by default, configured via `sidecars/studio/sidecar.json`:
+The sidecar server runs on `127.0.0.1:7777` by default, configured via `sidecars/studio/sidecar.json`:
 
 ```json
 {
@@ -100,7 +99,7 @@ The sidecar server runs on `127.0.0.1:7788` by default, configured via `sidecars
   "display_name": "Paint Studio",
   "description": "Interactive multi-layer drawing, PSD editing, and Gemini AI image refinement studio sidecar for Antigravity.",
   "env": {
-    "PORT": "7788",
+    "PORT": "7777",
     "MODEL": "gemini-3.1-flash-lite-image"
   }
 }
@@ -131,18 +130,18 @@ Invoke `/paint-studio` in the chat or ask the agent to draw, sketch, paint, or e
 > *"Open `/paint-studio` so I can sketch a diagram"*
 > *"Edit the PSD file in my session artifacts"*
 
-The agent runs the `paint-studio` skill, fetches the session template from `http://127.0.0.1:7788/api/template?session_id=<SESSION_ID>`, and embeds `<agent-embed>` in the conversation. From the inline preview card (`?mode=preview`), you can sketch immediately or open the full studio (`?mode=full`).
+The agent runs the `paint-studio` skill, fetches the session template from `http://127.0.0.1:7777/api/template?session_id=<SESSION_ID>`, and embeds `<agent-embed>` in the conversation. From the inline preview card (`?mode=preview`), you can sketch immediately or open the full studio (`?mode=full`).
 
 ### Standalone Development
 
-Start the sidecar server directly on port `7788`:
+Start the sidecar server directly on port `7777`:
 
 ```bash
 npm start
 ```
 
-- **Inline Preview Mode**: `http://127.0.0.1:7788/?session_id=<session-id>&mode=preview`
-- **Full Studio Mode**: `http://127.0.0.1:7788/?session_id=<session-id>&mode=full`
+- **Inline Preview Mode**: `http://127.0.0.1:7777/?session_id=<session-id>&mode=preview`
+- **Full Studio Mode**: `http://127.0.0.1:7777/?session_id=<session-id>&mode=full`
 
 Run the Vite development server:
 

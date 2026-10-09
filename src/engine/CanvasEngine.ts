@@ -101,7 +101,7 @@ export class CanvasEngine {
     const defaultEraser = new EraserTool();
     const defaultBucket = new BucketTool();
     const defaultSelect = new SelectionTool();
-    const defaultShape = new ShapeTool('rectangle');
+    const defaultShape = new ShapeTool('rect');
     const defaultText = new TextTool();
     const defaultEyedropper = new EyedropperTool();
     const defaultDrag = new DragTool();
@@ -112,15 +112,17 @@ export class CanvasEngine {
     this.tools.set('bucket', defaultBucket);
     this.tools.set('select', defaultSelect);
     this.tools.set('shape', defaultShape);
+    this.tools.set('rect', defaultShape);
     this.tools.set('rectangle', defaultShape);
-    this.tools.set('ellipse', new ShapeTool('ellipse'));
-    this.tools.set('line', new ShapeTool('line'));
-    this.tools.set('arrow', new ShapeTool('arrow'));
+    this.tools.set('circle', defaultShape);
+    this.tools.set('ellipse', defaultShape);
+    this.tools.set('line', defaultShape);
+    this.tools.set('arrow', defaultShape);
     this.tools.set('text', defaultText);
     this.tools.set('eyedropper', defaultEyedropper);
     this.tools.set('drag', defaultDrag);
 
-    this.activeTool = defaultPencil;
+    this.activeTool = defaultBrush;
 
     this.setupDOM();
     this.initDefaultDocument();
@@ -154,49 +156,6 @@ export class CanvasEngine {
 
   public addToolChangeListener(cb: (toolId: string) => void): void {
     this.toolChangeListeners.add(cb);
-  }
-
-  // Property getters & setters (append to listener sets without overwriting previous subscribers)
-  public get onLayerChange(): (() => void) | null {
-    return null;
-  }
-  public set onLayerChange(cb: (() => void) | null) {
-    if (cb) this.layerChangeListeners.add(cb);
-  }
-
-  public get onLayersChange(): (() => void) | null {
-    return null;
-  }
-  public set onLayersChange(cb: (() => void) | null) {
-    if (cb) this.layerChangeListeners.add(cb);
-  }
-
-  public get onHistoryChange(): (() => void) | null {
-    return null;
-  }
-  public set onHistoryChange(cb: (() => void) | null) {
-    if (cb) this.historyChangeListeners.add(cb);
-  }
-
-  public get onZoomChange(): ((zoom: number) => void) | null {
-    return null;
-  }
-  public set onZoomChange(cb: ((zoom: number) => void) | null) {
-    if (cb) this.zoomChangeListeners.add(cb);
-  }
-
-  public get onColorChange(): ((color: string) => void) | null {
-    return null;
-  }
-  public set onColorChange(cb: ((color: string) => void) | null) {
-    if (cb) this.colorChangeListeners.add(cb);
-  }
-
-  public get onToolChange(): ((toolId: string) => void) | null {
-    return null;
-  }
-  public set onToolChange(cb: ((toolId: any) => void) | null) {
-    if (cb) this.toolChangeListeners.add(cb);
   }
 
   private notifyLayerChange(): void {
@@ -324,18 +283,32 @@ export class CanvasEngine {
 
   public setTool(toolOrId: BaseTool | string): void {
     let resolvedTool: BaseTool;
+    let notifyKey: string;
     if (typeof toolOrId === 'string') {
       const found = this.tools.get(toolOrId);
       if (!found) {
         throw new Error(`Tool with id "${toolOrId}" is not registered in CanvasEngine.`);
       }
+      if (found instanceof ShapeTool) {
+        if (toolOrId === 'rect' || toolOrId === 'rectangle') {
+          found.shapeType = 'rect';
+        } else if (toolOrId === 'circle' || toolOrId === 'ellipse') {
+          found.shapeType = 'circle';
+        } else if (toolOrId === 'line') {
+          found.shapeType = 'line';
+        } else if (toolOrId === 'arrow') {
+          found.shapeType = 'arrow';
+        }
+      }
       resolvedTool = found;
+      notifyKey = toolOrId;
     } else {
       resolvedTool = toolOrId;
       this.tools.set(resolvedTool.id, resolvedTool);
       if (resolvedTool instanceof ShapeTool) {
         this.tools.set(resolvedTool.shapeType, resolvedTool);
       }
+      notifyKey = resolvedTool.id;
     }
 
     if (this.activeTool && this.activeTool !== resolvedTool) {
@@ -345,7 +318,7 @@ export class CanvasEngine {
     this.overlayCanvas.style.cursor = this.isSpacePressed ? 'grab' : resolvedTool.cursor;
     this.container.style.cursor = (this.isSpacePressed || resolvedTool.id === 'drag') ? 'grab' : 'default';
     this.renderOverlay();
-    this.notifyToolChange(resolvedTool.id);
+    this.notifyToolChange(notifyKey);
   }
 
   public async loadPsd(buffer: ArrayBuffer): Promise<void> {
@@ -477,8 +450,8 @@ export class CanvasEngine {
 
   public zoomAt(deltaZoom: number, clientX?: number, clientY?: number): void {
     const prevZoom = this.zoom;
-    let nextZoom = Math.max(0.1, Math.min(8.0, prevZoom + deltaZoom));
-    nextZoom = Math.round(nextZoom * 100) / 100;
+    const nextZoom = Math.max(0.1, Math.min(8.0, prevZoom + deltaZoom));
+    if (nextZoom === prevZoom) return;
 
     const rect = this.container.getBoundingClientRect();
     const anchorX = clientX !== undefined ? clientX - rect.left : rect.width / 2;
@@ -706,23 +679,37 @@ export class CanvasEngine {
       this.onPointerUp(e);
     });
 
-    // Mouse wheel: zoom centered on cursor
+    // Mouse wheel / trackpad scroll: smooth proportional zoom centered on cursor
     this.container.addEventListener(
       'wheel',
       (e: WheelEvent) => {
         e.preventDefault();
-        const delta = e.deltaY < 0 ? 0.1 : -0.1;
+        if (e.deltaY === 0) return;
+
+        // Normalize deltaY across pixel (0), line (1), and page (2) wheel modes
+        const modeMultiplier = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+        const normalizedDelta = Math.max(-60, Math.min(60, e.deltaY * modeMultiplier));
+
+        // Gentle exponential scale factor (~0.12% per pixel on trackpad, ~0.35% on pinch/ctrl)
+        const sensitivity = e.ctrlKey ? 0.0035 : 0.0012;
+        const zoomFactor = Math.exp(-normalizedDelta * sensitivity);
+        const targetZoom = Math.max(0.1, Math.min(8.0, this.zoom * zoomFactor));
+        const delta = targetZoom - this.zoom;
+
         this.zoomAt(delta, e.clientX, e.clientY);
       },
       { passive: false }
     );
 
-    // Keyboard shortcuts
+    // Spacebar pan & Escape deselect
     window.addEventListener('keydown', (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
       if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement ||
-        e.target instanceof HTMLSelectElement
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        Boolean(target?.isContentEditable) ||
+        document.querySelector('.modal-overlay')
       ) {
         return;
       }
@@ -737,44 +724,9 @@ export class CanvasEngine {
         return;
       }
 
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-      if (isCmdOrCtrl && e.key.toLowerCase() === 'z') {
+      if (e.key === 'Escape' && this.activeTool instanceof SelectionTool) {
         e.preventDefault();
-        if (e.shiftKey) {
-          this.redo();
-        } else {
-          this.undo();
-        }
-      } else if (isCmdOrCtrl && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        this.redo();
-      } else if (isCmdOrCtrl && e.key.toLowerCase() === 'x') {
-        if (this.activeTool instanceof SelectionTool) {
-          e.preventDefault();
-          this.activeTool.cut(this);
-        }
-      } else if (isCmdOrCtrl && e.key.toLowerCase() === 'c') {
-        if (this.activeTool instanceof SelectionTool) {
-          e.preventDefault();
-          this.activeTool.copy(this);
-        }
-      } else if (isCmdOrCtrl && e.key.toLowerCase() === 'v') {
-        if (this.activeTool instanceof SelectionTool) {
-          e.preventDefault();
-          this.activeTool.paste(this);
-        }
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (this.activeTool instanceof SelectionTool) {
-          e.preventDefault();
-          this.activeTool.deleteSelection(this);
-        }
-      } else if (e.key === 'Escape') {
-        if (this.activeTool instanceof SelectionTool) {
-          e.preventDefault();
-          this.activeTool.deselect(this);
-        }
+        this.activeTool.deselect(this);
       }
     });
 
@@ -796,10 +748,6 @@ export class CanvasEngine {
       }
     });
 
-    window.addEventListener('resize', () => {
-      this.fitToViewport();
-    });
-
     if (typeof ResizeObserver !== 'undefined') {
       let lastWidth = 0;
       let lastHeight = 0;
@@ -808,9 +756,17 @@ export class CanvasEngine {
           const w = Math.round(entry.contentRect.width);
           const h = Math.round(entry.contentRect.height);
           if (w > 0 && h > 0 && (w !== lastWidth || h !== lastHeight)) {
-            lastWidth = w;
-            lastHeight = h;
-            this.fitToViewport();
+            if (lastWidth === 0 || lastHeight === 0) {
+              lastWidth = w;
+              lastHeight = h;
+              this.fitToViewport();
+            } else {
+              this.panX += Math.round((w - lastWidth) / 2);
+              this.panY += Math.round((h - lastHeight) / 2);
+              lastWidth = w;
+              lastHeight = h;
+              this.applyTransform();
+            }
           }
         }
       });

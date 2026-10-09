@@ -309,7 +309,7 @@ function scanConversationMedia(sessionDir) {
 
 // Read configuration from environment variables (no hardcoded project fallback)
 export function getConfig() {
-  const portStr = process.env.PORT !== undefined ? String(process.env.PORT).trim() : '7788';
+  const portStr = process.env.PORT !== undefined ? String(process.env.PORT).trim() : '7777';
   const port = Number.parseInt(portStr, 10);
   if (
     Number.isNaN(port) ||
@@ -329,8 +329,6 @@ export function getConfig() {
     model: process.env.MODEL || 'gemini-3.1-flash-lite-image',
   };
 }
-
-export const readConfig = getConfig;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -504,7 +502,7 @@ export async function handleRequest(req, res) {
     return;
   }
 
-  const effectivePort = activeServerPort || req.socket?.localPort || config.port || 7788;
+  const effectivePort = activeServerPort || req.socket?.localPort || config.port || 7777;
   applySecurityAndCorsHeaders(req, res, effectivePort);
 
   if (req.method === 'OPTIONS') {
@@ -728,6 +726,170 @@ export async function handleRequest(req, res) {
 
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ success: true, filename, path: targetPath }));
+      return;
+    }
+
+    // 7b. GET /api/fs/info
+    if (pathname === '/api/fs/info' && req.method === 'GET') {
+      const homeDir = os.homedir();
+      const downloadsDir = path.join(homeDir, 'Downloads');
+      const desktopDir = path.join(homeDir, 'Desktop');
+      const workspaceDir = process.env.WORKSPACE_ROOT
+        ? path.resolve(process.env.WORKSPACE_ROOT)
+        : process.cwd();
+
+      const sessionId = searchParams.get('session_id') || searchParams.get('sessionId');
+      let sessionDir = null;
+      if (sessionId && SESSION_ID_REGEX.test(sessionId)) {
+        try {
+          sessionDir = resolveSessionBrainDir(sessionId);
+        } catch {
+          sessionDir = null;
+        }
+      }
+
+      const defaultDir = fs.existsSync(downloadsDir) ? downloadsDir : homeDir;
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          defaultDir,
+          downloadsDir,
+          desktopDir,
+          homeDir,
+          workspaceDir,
+          sessionDir,
+        })
+      );
+      return;
+    }
+
+    // 7c. POST /api/fs/save
+    if (pathname === '/api/fs/save' && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const { directory, filename, filePath } = body;
+      const data = body.data ?? body.image;
+
+      if (!data || typeof data !== 'string' || !data.trim()) {
+        throw createHttpError(
+          'Missing or invalid "data" in filesystem save request. Expected non-empty base64 string.',
+          400
+        );
+      }
+
+      const homeDir = os.homedir();
+      const expandTilde = (p) => {
+        const trimmed = p.trim();
+        if (trimmed === '~') return homeDir;
+        if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+          return path.join(homeDir, trimmed.slice(2));
+        }
+        return trimmed;
+      };
+
+      let targetPath;
+      if (typeof directory === 'string' && directory.trim() && typeof filename === 'string' && filename.trim()) {
+        if (
+          filename.includes('\0') ||
+          filename.includes('/') ||
+          filename.includes('\\') ||
+          filename === '.' ||
+          filename === '..'
+        ) {
+          throw createHttpError(
+            `Invalid filename "${filename}": must be a single file name without directory separators.`,
+            400
+          );
+        }
+        if (directory.includes('\0')) {
+          throw createHttpError('Invalid directory path: null byte detected.', 400);
+        }
+        const resolvedDir = path.resolve(expandTilde(directory));
+        targetPath = path.join(resolvedDir, filename.trim());
+      } else if (typeof filePath === 'string' && filePath.trim()) {
+        if (filePath.includes('\0')) {
+          throw createHttpError('Invalid filePath: null byte detected.', 400);
+        }
+        targetPath = path.resolve(expandTilde(filePath));
+      } else {
+        throw createHttpError(
+          'Missing target location: provide either ("directory" and "filename") or "filePath".',
+          400
+        );
+      }
+
+      const ext = path.extname(targetPath).toLowerCase();
+      if (!ALLOWED_ARTIFACT_EXTENSIONS.has(ext)) {
+        throw createHttpError(
+          `Unsupported file extension "${ext}". Allowed extensions: ${Array.from(ALLOWED_ARTIFACT_EXTENSIONS).join(', ')}.`,
+          400
+        );
+      }
+
+      const normalizedSegments = targetPath.split(path.sep);
+      if (normalizedSegments.includes('.system_generated')) {
+        throw createHttpError(
+          'Access denied: writing into ".system_generated" is forbidden.',
+          400
+        );
+      }
+
+      const allowedRoots = [
+        path.resolve(homeDir),
+        path.resolve(os.tmpdir()),
+        path.resolve(process.cwd()),
+      ];
+      try {
+        allowedRoots.push(fs.realpathSync(os.tmpdir()));
+      } catch {
+        // ignore if tmpdir realpath fails
+      }
+      if (process.env.WORKSPACE_ROOT) {
+        allowedRoots.push(path.resolve(process.env.WORKSPACE_ROOT));
+      }
+      try {
+        allowedRoots.push(path.resolve(getAppDataDir()));
+      } catch {
+        // ignore if appDataDir is not configured
+      }
+
+      const isWithinAllowedRoot = (candidate) =>
+        allowedRoots.some(
+          (root) => candidate === root || candidate.startsWith(root + path.sep)
+        );
+
+      if (!isWithinAllowedRoot(targetPath)) {
+        throw createHttpError(
+          `Access denied: target path "${targetPath}" must be within your home, workspace, or temp directory.`,
+          403
+        );
+      }
+
+      const targetDir = path.dirname(targetPath);
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+
+      const realTargetDir = fs.realpathSync(targetDir);
+      if (!isWithinAllowedRoot(realTargetDir)) {
+        throw createHttpError(
+          `Access denied: resolved target directory "${realTargetDir}" is outside allowed user directories.`,
+          403
+        );
+      }
+
+      const rawBase64 = data.includes(',') ? data.split(',')[1] : data;
+      const buffer = Buffer.from(rawBase64, 'base64');
+      fs.writeFileSync(targetPath, buffer);
+
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          success: true,
+          filename: path.basename(targetPath),
+          path: targetPath,
+          size: buffer.length,
+        })
+      );
       return;
     }
 
@@ -1162,7 +1324,6 @@ class ServerManager {
 }
 
 export const manager = new ServerManager();
-export const server = createStudioServer();
 
 function gracefulShutdown(signal) {
   console.log(`[agy-paint sidecar] Received ${signal}, shutting down gracefully...`);
