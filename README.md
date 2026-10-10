@@ -1,159 +1,122 @@
 # Paint Studio (`agy-paint-studio`)
 
-> Interactive multi-layer drawing, Photoshop PSD editing, and Gemini AI image refinement studio for **Google Antigravity**, featuring dual view modes (`?mode=preview` inline card & `?mode=full` full studio), native session artifacts integration, and AI artistic refinement powered by `gemini-3.1-flash-lite-image` on Vertex AI.
+Paint Studio is a drawing and image editing plugin for Google Antigravity. Use it to sketch diagrams, annotate screenshots, edit multi-layer Photoshop (`.psd`) files, and refine drawings with Gemini directly from your chat session.
 
----
+![Inline preview window in Antigravity chat](assets/screenshot-preview.png)
 
-## Highlights
+## Quickstart
 
-- **Dual View Modes**:
-  - **Inline Preview Card (`?mode=preview`)**: Compact generative UI card embedded directly in the Antigravity chat stream via `<agent-embed>`, rendered as a clean subset of the Full Studio UI.
-  - **Full Studio (`?mode=full`)**: Dedicated multi-panel workspace with menus, session artifacts browser, and layer stack management. Toggle between Preview and Full mode in-place or open Full Studio in a new browser tab.
-- **Photoshop (`.psd`) Compatibility**: Open and export multi-layer PSD files with full layer hierarchy, opacity, and blend modes using `ag-psd` and `sharp`.
-- **Always-On Sidecar**: Supervised by Antigravity on port `7777`, configured via `sidecars/studio/sidecar.json`.
-- **Complete Creative Tool Suite**:
-  - **Smooth Brush (`B`) & Pixel Pencil (`P`)**: Quadratic Bezier smoothed brush and crisp pixel-aligned hard-edged pencil with size and opacity controls.
-  - **Eraser (`E`)**: Variable-opacity pixel erasing using `destination-out`.
-  - **Paint Bucket (`G`)**: Scanline flood fill with configurable color proximity threshold (`0–100`).
-  - **Marquee Selection (`V`)**: Rectangular selection, cut, copy, paste, move, and clear pixels.
-  - **Vector Shapes (`U`, `O`, `L`, `A`)**: Rectangles, ellipses, lines, and arrows (stroked or filled, with `Shift` angle/aspect snapping) and live overlay preview.
-  - **Text Tool (`T`)**: Render configurable-size text (`8–120px`) directly onto active layers.
-  - **Eyedropper (`I`) & Drag/Pan (`H`)**: Sample composite colors directly from the canvas and pan/zoom the viewport.
-- **Full Layer Management**:
-  - Add, duplicate, delete, and reorder layers.
-  - Toggle visibility, lock layers, adjust opacity (0–100%), and set blend modes (*Normal, Multiply, Screen, Overlay, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light, Difference, Exclusion*).
-  - Merge down and flatten image.
-- **Session Artifacts Integration**: Browse, preview, open, and export drawings directly to and from the active Antigravity session brain directory (`<appDataDir>/brain/<session_id>/`).
-- **Instant "Send to Agent"**: Saves both PNG and layered PSD artifacts to the session directory and invokes the `agentapi` CLI to post the artwork into the active conversation.
-- **AI Refinement (`gemini-3.1-flash-lite-image`)**:
-  - Six style presets (**Auto**, **UI Mockup**, **Diagram**, **Icon**, **Sketch**, **Realistic**) plus custom creative prompts.
-  - Authenticates via Google Cloud Vertex AI Application Default Credentials (ADC).
-  - Inserts generated artwork non-destructively as a new layer or replaces the active layer.
+### 1. Install the plugin
 
----
-
-## Directory Structure
-
-```text
-agy-paint-studio/
-├── plugin.json                        # Antigravity plugin manifest
-├── package.json                       # Dependencies and build scripts
-├── tsconfig.json                      # Strict TypeScript configuration
-├── vite.config.ts                     # Vite bundling configuration
-├── index.html                         # Studio shell HTML
-├── sidecars/
-│   └── studio/
-│       ├── sidecar.json               # Always-on sidecar specification (PORT 7777)
-│       └── run.mjs                    # Sidecar startup entrypoint
-├── scripts/
-│   └── bundle-studio-artifact.mjs     # Self-contained HTML artifact bundler
-├── server/
-│   ├── index.mjs                      # Node.js HTTP server & REST API endpoints
-│   └── services/
-│       └── gemini.mjs                 # Vertex AI Gemini image refinement service
-├── skills/
-│   └── paint-studio/
-│       ├── SKILL.md                   # /paint-studio skill instructions
-│       └── template.html              # Inline generative UI artifact template
-├── assets/
-│   ├── logo.svg                       # Vector plugin icon
-│   └── studio-icon.svg                # Studio header icon
-├── tests/                             # Unit and integration test suites
-└── src/                               # Frontend TypeScript application
-    ├── main.ts                        # App entrypoint and view mode routing
-    ├── style.css                      # Styling and theme tokens
-    ├── engine/                        # Canvas engine, layers, history, and tools
-    ├── ui/                            # Header, toolbar, layer panel, and modals
-    └── utils/                         # PSD serialization and runtime API helpers
-```
-
----
-
-## Installation
-
-### 1. Install as an Antigravity Plugin
-
-Clone or symlink this repository into your Antigravity plugins directory:
+Link the repository into your Antigravity plugins directory and build the bundle:
 
 ```bash
 ln -s /path/to/agy-paint-studio ~/.gemini/config/plugins/agy-paint-studio
-```
-
-Install dependencies and build the studio bundle:
-
-```bash
 cd /path/to/agy-paint-studio
 npm install
 npm run build
 ```
 
-### 2. Sidecar Configuration
+### 2. Enable AI refinement (optional)
 
-The sidecar server runs on `127.0.0.1:7777` by default, configured via `sidecars/studio/sidecar.json`:
+AI refinement uses Google Cloud Application Default Credentials (ADC):
 
-```json
-{
-  "command": "node",
-  "args": ["run.mjs"],
-  "restart_policy": "always",
-  "display_name": "Paint Studio",
-  "description": "Interactive multi-layer drawing, PSD editing, and Gemini AI image refinement studio sidecar for Antigravity.",
-  "env": {
-    "PORT": "7777",
-    "MODEL": "gemini-3.1-flash-lite-image"
-  }
-}
+```bash
+gcloud auth application-default login
+export GOOGLE_CLOUD_PROJECT="your-gcp-project-id"
+export GOOGLE_CLOUD_LOCATION="global"
 ```
 
-### 3. Vertex AI Setup (Application Default Credentials)
+### 3. Open the canvas in chat
 
-To enable **Beautify** and **Watercolour** AI image refinement using `gemini-3.1-flash-lite-image`:
+Type `/paint-studio` in an Antigravity conversation, or ask the agent to open the canvas:
 
-1. Authenticate with Google Cloud Application Default Credentials (ADC):
-   ```bash
-   gcloud auth application-default login
-   ```
-2. Set your Google Cloud Project ID in your environment:
-   ```bash
-   export GOOGLE_CLOUD_PROJECT="your-gcp-project-id"
-   export GOOGLE_CLOUD_LOCATION="global"
-   ```
+```text
+/paint-studio
+```
+
+Draw on the inline canvas and click **Send** to post the image back into the chat.
 
 ---
 
-## Usage
+## Preview mode and full mode
 
-### In Antigravity Chat (`/paint-studio`)
+Paint Studio runs in two views backed by a local server on port `7777`:
 
-Invoke `/paint-studio` in the chat or ask the agent to draw, sketch, paint, or edit an image:
+- **Preview mode** (`?mode=preview`): A compact canvas embedded directly in the chat message stream for quick sketches, annotations, and AI edits.
+- **Full mode** (`?mode=full`): A full browser workspace with menu bars and a layer panel for managing multiple layers, blend modes, and opacity. Click **Full Mode** in the preview header to open it in your browser.
 
-> *"Open `/paint-studio` so I can sketch a diagram"*
-> *"Edit the PSD file in my session artifacts"*
+![Full mode workspace in browser](assets/screenshot-full.png)
 
-The agent runs the `paint-studio` skill, fetches the session template from `http://127.0.0.1:7777/api/template?session_id=<SESSION_ID>`, and embeds `<agent-embed>` in the conversation. From the inline preview card (`?mode=preview`), you can sketch immediately or open the full studio (`?mode=full`).
+---
 
-### Standalone Development
+## Workflows and shortcuts
 
-Start the sidecar server directly on port `7777`:
+### Saving, exporting, and sending
+
+| Action | Description |
+| :--- | :--- |
+| **Send** | Saves the current canvas as a PNG in the session folder and posts it to the active chat. |
+| **Save (`⌘S`)** | Saves a layered `.psd` file to your local filesystem (`Downloads`, `Desktop`, `Workspace`, `Session`, or custom path). |
+| **Export (`⇧⌘E`)** | Exports a flattened `PNG`, `JPEG`, or `WebP` image to your local filesystem. |
+| **Open File (`⌘O`)** | Opens a local image (`PNG`, `JPEG`, `WebP`) or layered `.psd` file from disk. |
+| **Open Artifact** | Browses images and `.psd` files from the active Antigravity session to open as a canvas or insert as a new layer. |
+
+### AI refinement
+
+The bottom bar refines your drawing and adds the result as a new layer:
+
+- **Presets**: Click **Auto**, **Sketch**, **UI**, **Diagram**, **Icon**, or **Realistic** to restyle the current canvas.
+- **Custom prompt**: Type instructions in the prompt box and press `Enter` or click **Refine**.
+
+### Keyboard shortcuts
+
+| Key | Tool / Action |
+| :--- | :--- |
+| `V` | Select, move, cut, copy, or paste |
+| `B` | Smooth brush |
+| `P` | Pixel pencil |
+| `E` | Eraser |
+| `U` / `O` | Rectangle / Ellipse |
+| `L` / `A` | Line / Arrow |
+| `T` | Text |
+| `G` | Paint bucket fill |
+| `I` | Eyedropper |
+| `H` / `Space` | Pan canvas (scroll to zoom) |
+| `X` | Swap foreground and background colors |
+| `[` / `]` | Decrease / increase tool size |
+| `⌘Z` / `⇧⌘Z` | Undo / Redo |
+| `⌫` | Clear active selection or layer |
+
+---
+
+## Development
+
+Start the local server on `http://127.0.0.1:7777`:
 
 ```bash
 npm start
 ```
 
-- **Inline Preview Mode**: `http://127.0.0.1:7777/?session_id=<session-id>&mode=preview`
-- **Full Studio Mode**: `http://127.0.0.1:7777/?session_id=<session-id>&mode=full`
-
-Run the Vite development server:
+Run the Vite development server, typechecker, and test suite:
 
 ```bash
 npm run dev
-```
-
-Run typechecking and unit tests:
-
-```bash
 npm run typecheck
 npm test
+```
+
+### Project layout
+
+```text
+agy-paint-studio/
+├── plugin.json                        # Plugin manifest
+├── sidecars/studio/                   # Sidecar configuration (port 7777)
+├── skills/paint-studio/               # /paint-studio skill and HTML template
+├── server/                            # Local HTTP server and Gemini service
+├── src/                               # Canvas engine and UI components
+├── assets/                            # Icons and documentation screenshots
+└── tests/                             # Unit and server integration tests
 ```
 
 ---
@@ -161,9 +124,3 @@ npm test
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
-
----
-
-## Disclaimer
-
-This is not an officially supported Google product.
