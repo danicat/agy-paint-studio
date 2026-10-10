@@ -16,7 +16,7 @@
 
 import type { CanvasEngine } from '../engine/CanvasEngine.ts';
 import { serializePsd, parsePsd } from '../utils/psd.ts';
-import { getApiBaseUrl, getSessionId } from '../utils/api.ts';
+import { sidecarFetch, getApiBaseUrl, getSessionId } from '../utils/api.ts';
 import { NotificationManager } from './Notification.ts';
 
 export class ArtifactModal {
@@ -139,8 +139,7 @@ export class ArtifactModal {
     if (!listContainer || !this.sessionId) return;
 
     try {
-      const baseUrl = getApiBaseUrl();
-      const res = await fetch(`${baseUrl}/api/artifacts?session_id=${encodeURIComponent(this.sessionId)}`);
+      const res = await sidecarFetch(`/api/artifacts?session_id=${encodeURIComponent(this.sessionId)}`);
       if (!res.ok) {
         const bodyText = await res.text();
         let errMsg = `HTTP ${res.status}: ${res.statusText}`;
@@ -253,7 +252,7 @@ export class ArtifactModal {
 
     try {
       NotificationManager.info(`Loading artifact "${filename}"...`);
-      const fileUrl = `${getApiBaseUrl()}/api/artifact?session_id=${encodeURIComponent(this.sessionId)}&filename=${encodeURIComponent(filename)}`;
+      const fileUrl = `/api/artifact?session_id=${encodeURIComponent(this.sessionId)}&filename=${encodeURIComponent(filename)}`;
       const res = await fetch(fileUrl);
       if (!res.ok) {
         throw new Error(`Failed to download artifact "${filename}": HTTP ${res.status} ${res.statusText}`);
@@ -340,10 +339,8 @@ export class ArtifactModal {
         base64Data = comp.toDataURL(mime, 0.95);
       }
 
-      const baseUrl = getApiBaseUrl();
-      const res = await fetch(`${baseUrl}/api/artifact`, {
+      const res = await sidecarFetch('/api/artifact', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: this.sessionId,
           filename: baseName,

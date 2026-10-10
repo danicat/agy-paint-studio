@@ -1,14 +1,14 @@
 # Paint Studio (`agy-paint-studio`)
 
-Paint Studio is a drawing and image editing plugin for Google Antigravity. Use it to sketch diagrams, annotate screenshots, edit multi-layer Photoshop (`.psd`) files, and refine drawings with Gemini directly from your chat session.
+Paint Studio is a drawing and image editing UI extension for Google Antigravity. Use it in the side pane next to your conversation to sketch diagrams, annotate screenshots, edit multi-layer Photoshop (`.psd`) files, and refine drawings with Gemini.
 
-![Inline preview window in Antigravity chat](assets/screenshot-preview.png)
+![Side-pane preview window in Antigravity](assets/screenshot-preview.png)
 
 ## Quickstart
 
 ### 1. Install the plugin
 
-Link the repository into your Antigravity plugins directory and build the bundle:
+Link the repository into your Antigravity plugins directory and build the frontend:
 
 ```bash
 ln -s /path/to/agy-paint-studio ~/.gemini/config/plugins/agy-paint-studio
@@ -16,6 +16,8 @@ cd /path/to/agy-paint-studio
 npm install
 npm run build
 ```
+
+Enable **Paint Studio** in **Customizations → Installed**.
 
 ### 2. Enable AI refinement (optional)
 
@@ -27,24 +29,24 @@ export GOOGLE_CLOUD_PROJECT="your-gcp-project-id"
 export GOOGLE_CLOUD_LOCATION="global"
 ```
 
-### 3. Open the canvas in chat
+### 3. Open Paint Studio
 
-Type `/paint-studio` in an Antigravity conversation, or ask the agent to open the canvas:
+Open Paint Studio inline in the chat or in the right-hand side pane:
 
-```text
-/paint-studio
-```
+- Type `/paint-studio` in chat to get both an **inline canvas** in the conversation and a **Paint Studio** pill to dock it in the side pane.
+- Open the **⋮** menu in the top-right corner of a conversation and choose **Extensions → Paint Studio** to toggle the side pane directly.
 
-Draw on the inline canvas and click **Send** to post the image back into the chat.
+Draw on the canvas and click **Send** to post the image into the active conversation.
 
 ---
 
-## Preview mode and full mode
+## Inline, side pane, and full mode
 
-Paint Studio runs in two views backed by a local server on port `7777`:
+Paint Studio runs in three views served by its background sidecar:
 
-- **Preview mode** (`?mode=preview`): A compact canvas embedded directly in the chat message stream for quick sketches, annotations, and AI edits.
-- **Full mode** (`?mode=full`): A full browser workspace with menu bars and a layer panel for managing multiple layers, blend modes, and opacity. Click **Full Mode** in the preview header to open it in your browser.
+- **Inline chat mode**: A 480px card embedded directly in the chat stream for quick sketches and annotations.
+- **Side-pane mode**: A dockable panel in Antigravity's auxiliary side pane that automatically expands to the full workspace layout when widened or maximized.
+- **Full mode** (`?mode=full`): A full browser workspace with menu bars and a layer panel for managing multiple layers, blend modes, and opacity. Click **Full Mode** in the header to open it in a browser tab.
 
 ![Full mode workspace in browser](assets/screenshot-full.png)
 
@@ -66,7 +68,7 @@ Paint Studio runs in two views backed by a local server on port `7777`:
 
 The bottom bar refines your drawing and adds the result as a new layer:
 
-- **Presets**: Click **Auto**, **Sketch**, **UI**, **Diagram**, **Icon**, or **Realistic** to restyle the current canvas.
+- **Presets**: Click **Beautify**, **Notes**, **Watercolor**, **Concept Art**, **Vector**, **Pixel Art**, **3D Clay**, or **Anime** to transform the current canvas.
 - **Custom prompt**: Type instructions in the prompt box and press `Enter` or click **Refine**.
 
 ### Keyboard shortcuts
@@ -92,16 +94,10 @@ The bottom bar refines your drawing and adds the result as a new layer:
 
 ## Development
 
-Start the local server on `http://127.0.0.1:7777`:
+Build the frontend, run the typechecker, and run the test suite:
 
 ```bash
-npm start
-```
-
-Run the Vite development server, typechecker, and test suite:
-
-```bash
-npm run dev
+npm run build
 npm run typecheck
 npm test
 ```
@@ -111,9 +107,9 @@ npm test
 ```text
 agy-paint-studio/
 ├── plugin.json                        # Plugin manifest
-├── sidecars/studio/                   # Sidecar configuration (port 7777)
-├── skills/paint-studio/               # /paint-studio skill and HTML template
-├── server/                            # Local HTTP server and Gemini service
+├── sidecars/studio/                   # UI extension sidecar manifest and entrypoint
+├── skills/paint-studio/               # /paint-studio inline + side-pane skill
+├── server/                            # SidecarApp routes and Gemini service
 ├── src/                               # Canvas engine and UI components
 ├── assets/                            # Icons and documentation screenshots
 └── tests/                             # Unit and server integration tests
@@ -124,3 +120,9 @@ agy-paint-studio/
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+
+---
+
+## Disclaimer
+
+This is not an officially supported Google product.

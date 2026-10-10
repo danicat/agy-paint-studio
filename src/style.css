@@ -15,27 +15,22 @@
  */
 
 :root {
-  --bg-color: #F8FAFC;
-  --bg-panel: #FFFFFF;
-  --bg-secondary: #F1F5F9;
-  --surface-color: #FFFFFF;
-  --surface-hover: #F1F5F9;
-  --surface-active: #E2E8F0;
-  --border-color: #E2E8F0;
-  --border-subtle: #E2E8F0;
-  --border-strong: #CBD5E1;
-  --text-primary: #0F172A;
-  --text-secondary: #475569;
-  --text-muted: #64748B;
-  --border: #E2E8F0;
-  --card: #FFFFFF;
-  --foreground: #0F172A;
-  --muted-foreground: #64748B;
-  --content: #F1F5F9;
-  --accent-color: #4F46E5;
-  --accent-hover: #4338CA;
-  --accent-light: #EEF2FF;
-  --accent-text: #FFFFFF;
+  --bg-color: var(--background, #F8FAFC);
+  --bg-panel: var(--card, #FFFFFF);
+  --bg-secondary: var(--secondary, #F1F5F9);
+  --surface-color: var(--card, #FFFFFF);
+  --surface-hover: var(--secondary, #F1F5F9);
+  --surface-active: var(--muted, #E2E8F0);
+  --border-color: var(--border, #E2E8F0);
+  --border-subtle: var(--card-border, var(--border, #E2E8F0));
+  --border-strong: var(--border, #CBD5E1);
+  --text-primary: var(--foreground, #0F172A);
+  --text-secondary: var(--secondary-foreground, #475569);
+  --text-muted: var(--muted-foreground, #64748B);
+  --accent-color: var(--primary, #4F46E5);
+  --accent-hover: color-mix(in srgb, var(--primary, #4F46E5) 88%, var(--foreground, #000000));
+  --accent-light: color-mix(in srgb, var(--primary, #4F46E5) 14%, transparent);
+  --accent-text: var(--primary-foreground, #FFFFFF);
   --danger-color: #EF4444;
   --danger-hover: #DC2626;
   --success-color: #10B981;
@@ -1010,8 +1005,32 @@ body.studio-mode-full #app-root {
   accent-color: var(--accent-color);
 }
 
-/* Dual View Mode: Preview vs Full (Preview is a strict subset of Full) */
+/* Dual View Mode: Side-Pane Preview, Inline Chat Embed, and Full Browser Mode */
 body.studio-mode-preview {
+  width: 100vw;
+  height: 100dvh;
+  background-color: var(--bg-color);
+  overflow: hidden;
+  padding: 0;
+}
+
+body.studio-mode-preview #app {
+  width: 100%;
+  height: 100dvh;
+}
+
+body.studio-mode-preview #app-root {
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  border: none;
+  border-radius: 0;
+  background-color: var(--bg-color);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+body.studio-mode-preview.studio-mode-inline {
   width: 100%;
   height: auto;
   background-color: transparent;
@@ -1019,11 +1038,11 @@ body.studio-mode-preview {
   padding: 4px;
 }
 
-body.studio-mode-preview #app {
+body.studio-mode-preview.studio-mode-inline #app {
   height: auto;
 }
 
-body.studio-mode-preview #app-root {
+body.studio-mode-preview.studio-mode-inline #app-root {
   height: 480px;
   max-height: 480px;
   border: 1px solid var(--border-color);

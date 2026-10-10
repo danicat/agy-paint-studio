@@ -1,33 +1,35 @@
 ---
 name: paint-studio
-description: Launch the Agy Paint Studio inline drawing canvas directly in the active Antigravity chat session. Use whenever the user types /paint-studio, asks to draw, sketch, paint, create diagrams, or edit images.
+description: Open the interactive Paint Studio canvas both inline in the chat stream and as a dockable side-pane UI Extension in the active Antigravity conversation. Use whenever the user types /paint-studio, asks to draw, sketch, paint, create diagrams, or edit images.
 license: Apache-2.0
 ---
 
 # Paint Studio (`/paint-studio`)
 
-Execute this deterministic procedure immediately without running any prior checks, inspections, or file reads.
+Paint Studio supports three simultaneous modes from a single `SidecarApp` backend (`agy-paint-studio/studio`):
+1. **Inline Chat Canvas (`<agent-embed>`)**: Interactive 480px studio card embedded directly in the conversation stream.
+2. **Side-Pane UI Extension (`sidecar://agy-paint-studio/studio/`)**: Docked auxiliary side pane in Antigravity (`SIDECAR_UI_ENTRYPOINT_AUX_PANE`) that expands to full studio mode when widened or maximized.
+3. **Full Browser Window**: Pop-out full-screen studio via the **Full Mode** button in the header.
 
 ## Execution Runbook
 
-1. **Check Existing Artifact**:
-   - Check if `paint-studio.html` is already present in your conversation's `<artifacts>` list.
-   - **If already present**: Skip generation and proceed directly to step 2.
-   - **If not yet present**: Fetch the dynamically rendered template from the running sidecar into your artifacts directory:
-     ```bash
-     curl -sfS "http://127.0.0.1:7777/api/template?session_id=<SESSION_ID>" -o "<ARTIFACT_DIR>/paint-studio.html"
-     ```
-     *(Note: `<SESSION_ID>` is given under `Conversation ID:`. `<ARTIFACT_DIR>` is given under `Artifact Directory Path:`)*
+When the user invokes `/paint-studio` (or asks to sketch, paint, or edit images):
 
-2. **Render Inline Canvas**:
-   In your text response, immediately output the embed tag:
-   ```html
-   <agent-embed src="file:///<ARTIFACT_DIR>/paint-studio.html"></agent-embed>
-   ```
+### Step 1: Discover the Active Sidecar Port & Fetch the Inline Artifact
+Read the active sidecar port from `~/.gemini/antigravity/sidecar_data/agy-paint-studio/studio/logs/sidecar.log` and fetch the self-contained HTML artifact from `/api/template?session_id=<conversation-id>` into a temporary file, then register it in the conversation's artifact directory using `write_to_file` (`UserFacing: true`, `RequestFeedback: false`):
 
-## STRICT PROHIBITIONS
-- **DO NOT** read files, inspect the codebase, or run `ls`, `find`, or `grep`.
-- **DO NOT** hardcode ephemeral port numbers.
-- **DO NOT** use `write_to_file` — the template is generated dynamically by the server endpoint.
-- **DO NOT** ask clarifying questions.
-The sidecar server renders the template with its active port, host, and session ID.
+```bash
+PORT=$(grep -Eo '127\.0\.0\.1:[0-9]+' ~/.gemini/antigravity/sidecar_data/agy-paint-studio/studio/logs/sidecar.log | tail -n 1 | cut -d: -f2)
+curl -sf "http://127.0.0.1:${PORT}/api/template?session_id=<conversation-id>" -o /tmp/paint-studio-inline.html
+```
+
+Then write `/tmp/paint-studio-inline.html` to `<appDataDir>/brain/<conversation-id>/paint-studio.html` using `write_to_file` (or copy it directly after creating the artifact metadata).
+
+### Step 2: Render Both the Inline Widget and the Side-Pane Pill
+In your chat response, include **both** the `<agent-embed>` tag and the `sidecar://` pill:
+
+```markdown
+<agent-embed src="file:///<appDataDir>/brain/<conversation-id>/paint-studio.html"></agent-embed>
+
+[Paint Studio](sidecar://agy-paint-studio/studio/)
+```

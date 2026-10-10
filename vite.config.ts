@@ -16,42 +16,54 @@
 
 import { defineConfig } from 'vite';
 
-const port = parseInt(process.env.PORT || '7777', 10);
-const host = '127.0.0.1';
-
 export default defineConfig({
   root: '.',
-  base: './',
+  base: '/',
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    target: 'esnext'
-  },
-  server: {
-    port,
-    host,
-    strictPort: true, // Fail-fast: error out visibly if the port is in use
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': '*',
-      'Access-Control-Allow-Private-Network': 'true',
-      'Content-Security-Policy': 'frame-ancestors *'
+    target: 'es2022',
+    cssCodeSplit: false,
+    modulePreload: false,
+    rollupOptions: {
+      output: {
+        format: 'iife',
+        inlineDynamicImports: true,
+        entryFileNames: 'app.js',
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name && assetInfo.name.endsWith('.css')) {
+            return 'styles.css';
+          }
+          return 'assets/[name][extname]';
+        }
+      }
     }
   },
   plugins: [
     {
-      name: 'agy-paint-sidecar-api',
-      async configureServer(server) {
-        process.env.VITE_DEV_MODE = '1';
-        const { handleRequest } = await import('./server/index.mjs');
-        server.middlewares.use(async (req, res, next) => {
-          if (req.url && req.url.startsWith('/api/')) {
-            await handleRequest(req, res);
-            return;
-          }
-          next();
-        });
+      name: 'sidecar-classic-html',
+      transformIndexHtml: {
+        order: 'post',
+        handler(html) {
+          // Remove Vite's default module/crossorigin script and stylesheet tags
+          let cleaned = html
+            .replace(/<script\b[^>]*\bsrc=["']\/?(?:assets\/)?app\.js["'][^>]*><\/script>\s*/gi, '')
+            .replace(/<link\b[^>]*\bhref=["']\/?(?:assets\/)?(?:styles|index)\.css["'][^>]*>\s*/gi, '');
+
+          // Inject /styles.css and /preload.js in <head>
+          cleaned = cleaned.replace(
+            '<head>',
+            '<head>\n  <link rel="stylesheet" href="/styles.css">\n  <script src="/preload.js"></script>'
+          );
+
+          // Inject classic /app.js before </body>
+          cleaned = cleaned.replace(
+            '</body>',
+            '  <script src="/app.js"></script>\n</body>'
+          );
+
+          return cleaned;
+        }
       }
     }
   ]

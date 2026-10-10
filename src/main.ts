@@ -23,25 +23,36 @@ import { LayerPanel } from './ui/LayerPanel.ts';
 import { NotificationManager } from './ui/Notification.ts';
 import {
   getStudioMode,
+  isInlineEmbed,
   type StudioMode
 } from './utils/api.ts';
 
 function applyStudioModeClasses(mode: StudioMode): void {
   const modeClass = mode === 'preview' ? 'studio-mode-preview' : 'studio-mode-full';
+  const inlineEmbed = isInlineEmbed();
 
-  document.body.classList.remove('studio-mode-preview', 'studio-mode-full');
+  document.body.classList.remove('studio-mode-preview', 'studio-mode-full', 'studio-mode-inline');
   document.body.classList.add('studio-container', modeClass);
+  if (inlineEmbed) {
+    document.body.classList.add('studio-mode-inline');
+  }
 
   const appEl = document.getElementById('app');
   if (appEl) {
-    appEl.classList.remove('studio-mode-preview', 'studio-mode-full');
+    appEl.classList.remove('studio-mode-preview', 'studio-mode-full', 'studio-mode-inline');
     appEl.classList.add('studio-container', modeClass);
+    if (inlineEmbed) {
+      appEl.classList.add('studio-mode-inline');
+    }
   }
 
   const appRootEl = document.getElementById('app-root');
   if (appRootEl) {
-    appRootEl.classList.remove('studio-mode-preview', 'studio-mode-full');
+    appRootEl.classList.remove('studio-mode-preview', 'studio-mode-full', 'studio-mode-inline');
     appRootEl.classList.add('studio-container', modeClass);
+    if (inlineEmbed) {
+      appRootEl.classList.add('studio-mode-inline');
+    }
   }
 }
 
@@ -85,6 +96,19 @@ function initStudio(): void {
     // Re-fit viewport once layout mode classes have settled
     requestAnimationFrame(() => {
       engine.fitToViewport();
+    });
+
+    // Dynamically switch between compact preview and full studio layout when Aux Pane is resized/maximized
+    let currentMode = mode;
+    window.addEventListener('resize', () => {
+      const nextMode = getStudioMode();
+      if (nextMode !== currentMode) {
+        currentMode = nextMode;
+        applyStudioModeClasses(nextMode);
+        requestAnimationFrame(() => {
+          engine.fitToViewport();
+        });
+      }
     });
 
     console.log(`[Paint Studio] Initialized in "${mode}" mode`);

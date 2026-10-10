@@ -25,7 +25,6 @@ process.on('unhandledRejection', (reason) => {
   process.exit(1);
 });
 
-const { manager } = await import('../../server/index.mjs');
-if (manager && !manager.server) {
-  await manager.start();
-}
+const { createSidecarApp } = await import('../../server/index.mjs');
+const app = createSidecarApp();
+await app.run();

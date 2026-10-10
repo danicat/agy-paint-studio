@@ -14,12 +14,20 @@
  * limitations under the License.
  */
 
-export interface StudioConfig {
-  port?: string | number;
-  host?: string;
-  sessionId?: string;
-  apiBaseUrl?: string;
-  mode?: 'preview' | 'full';
+export interface SidecarBridge {
+  conversationId: string | null;
+  fetch: (url: string, options?: RequestInit) => Promise<Response>;
+  getWorkspaceUris: () => Promise<string[]>;
+  onWorkspaceChange: (listener: (uris: string[]) => void) => () => void;
+  agent: {
+    sendMessage: (message: string, conversationId?: string) => Promise<unknown>;
+    startConversation: (message: string, title?: string) => Promise<unknown>;
+    getConversationMetadata: (conversationId: string) => Promise<unknown>;
+  };
+  ui: {
+    toggleAuxPane: (request?: { open?: boolean }) => void;
+    toggleConversation: (conversationId: string) => void;
+  };
 }
 
 export interface SessionSummary {
@@ -28,135 +36,101 @@ export interface SessionSummary {
   updatedAt: string;
 }
 
+export interface StudioEmbedConfig {
+  baseUrl: string;
+  token: string;
+  conversationId: string;
+}
+
 declare global {
   interface Window {
-    __STUDIO_CONFIG__?: StudioConfig;
+    sidecar?: SidecarBridge;
+    __STUDIO_EMBED__?: StudioEmbedConfig;
   }
 }
 
 export type StudioMode = 'preview' | 'full';
 
+const VALID_SESSION_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
+
 let activeSessionId: string | null = null;
 const sessionChangeListeners: Array<(sessionId: string) => void> = [];
 
-function isConfiguredToken(val: unknown): val is string {
-  if (typeof val === 'number' && Number.isFinite(val)) {
-    return true;
-  }
-  if (typeof val !== 'string') {
-    return false;
-  }
-  const trimmed = val.trim();
-  return trimmed.length > 0 && !(trimmed.startsWith('__') && trimmed.endsWith('__'));
-}
-
 /**
- * Resolve the active runtime port from injected `window.__STUDIO_CONFIG__` or `window.location`.
- * Fails fast with a descriptive configuration error if unconfigured on a non-HTTP(S) protocol.
+ * Check whether the studio is running inside an inline `<agent-embed>` chat artifact.
  */
-export function getRuntimePort(): string {
-  const cfgPort = window.__STUDIO_CONFIG__?.port;
-  if (isConfiguredToken(cfgPort)) {
-    const portStr = String(cfgPort).trim();
-    const portNum = Number(portStr);
-    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
-      throw new Error(
-        `[Paint Studio Config Error] Invalid port "${portStr}" in window.__STUDIO_CONFIG__.port. Must be an integer between 1 and 65535.`
-      );
-    }
-    return portStr;
-  }
-
-  const protocol = window.location.protocol;
-  if (protocol === 'http:' || protocol === 'https:') {
-    if (window.location.port) {
-      return window.location.port;
-    }
-    return protocol === 'https:' ? '443' : '80';
-  }
-
-  throw new Error(
-    `[Paint Studio Config Error] Unable to resolve runtime server port: ` +
-      `window.__STUDIO_CONFIG__.port is unreplaced or missing, and document is running on ` +
-      `protocol "${protocol}" with an empty window.location.port.`
-  );
+export function isInlineEmbed(): boolean {
+  return Boolean(window.__STUDIO_EMBED__?.baseUrl);
 }
 
 /**
- * Resolve the active runtime host from injected `window.__STUDIO_CONFIG__` or `window.location`.
- * Fails fast with a descriptive configuration error if unconfigured on a non-HTTP(S) protocol.
+ * Retrieve the Antigravity `window.sidecar` bridge injected by `/preload.js` or inline embed template.
+ * Fails fast with a descriptive error if `window.sidecar` is not initialized.
  */
-export function getRuntimeHost(): string {
-  const cfgHost = window.__STUDIO_CONFIG__?.host;
-  if (isConfiguredToken(cfgHost)) {
-    return String(cfgHost).trim();
+export function getSidecar(): SidecarBridge {
+  if (!window.sidecar) {
+    throw new Error(
+      '[Paint Studio Fatal] window.sidecar bridge is not initialized. Ensure Paint Studio is served by the Antigravity Sidecar SDK (/preload.js).'
+    );
   }
-
-  const protocol = window.location.protocol;
-  if ((protocol === 'http:' || protocol === 'https:') && window.location.hostname) {
-    return window.location.hostname;
-  }
-
-  throw new Error(
-    `[Paint Studio Config Error] Unable to resolve runtime server host: ` +
-      `window.__STUDIO_CONFIG__.host is unreplaced or missing, and document is running on ` +
-      `protocol "${protocol}" without a valid window.location.hostname.`
-  );
+  return window.sidecar;
 }
 
 /**
- * Resolve the base URL for all Paint Studio HTTP sidecar API calls.
+ * Return the API base URL.
+ * Returns the sidecar loopback origin when running inside an inline `<agent-embed>` widget,
+ * and returns '' (relative path) inside the Aux Pane (`plugin://` origin) and Full Mode (`http://127.0.0.1:<port>`).
  */
 export function getApiBaseUrl(): string {
-  const cfgBaseUrl = window.__STUDIO_CONFIG__?.apiBaseUrl;
-  if (isConfiguredToken(cfgBaseUrl)) {
-    return String(cfgBaseUrl).trim().replace(/\/+$/, '');
+  if (window.__STUDIO_EMBED__?.baseUrl) {
+    return window.__STUDIO_EMBED__.baseUrl.replace(/\/+$/, '');
   }
-
-  const host = getRuntimeHost();
-  const port = getRuntimePort();
-  const hasInjectedPort = isConfiguredToken(window.__STUDIO_CONFIG__?.port);
-  const scheme =
-    !hasInjectedPort && window.location.protocol === 'https:' ? 'https' : 'http';
-
-  if (
-    !hasInjectedPort &&
-    !window.location.port &&
-    ((scheme === 'http' && port === '80') || (scheme === 'https' && port === '443'))
-  ) {
-    return `${scheme}://${host}`;
-  }
-
-  return `${scheme}://${host}:${port}`;
+  return '';
 }
 
-const VALID_SESSION_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
+/**
+ * Authenticated fetch wrapper that automatically includes the sidecar token via `window.sidecar.fetch`.
+ */
+export function sidecarFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const normalizedPath = `${getApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
+  return getSidecar().fetch(normalizedPath, options);
+}
 
 /**
- * Resolve the initial session ID from query parameters, `window.__STUDIO_CONFIG__`, or brain path.
+ * Resolve the conversation's active workspace folder URIs (`file://...`) from the host bridge.
+ */
+export function getWorkspaceUris(): Promise<string[]> {
+  if (window.location.protocol !== 'plugin:') {
+    return Promise.resolve([]);
+  }
+  return getSidecar().getWorkspaceUris();
+}
+
+/**
+ * Send a message directly to the active (or specified) Antigravity conversation via `window.sidecar.agent`.
+ */
+export function sendAgentMessage(message: string, conversationId?: string): Promise<unknown> {
+  return getSidecar().agent.sendMessage(message, conversationId);
+}
+
+/**
+ * Resolve the initial session ID from `window.sidecar.conversationId`, inline embed config, or URL query parameters.
  */
 export function getInitialSessionId(): string {
+  const sidecarConvId = window.sidecar?.conversationId?.trim();
+  if (sidecarConvId && VALID_SESSION_ID_REGEX.test(sidecarConvId)) {
+    return sidecarConvId;
+  }
+
+  const embedConvId = window.__STUDIO_EMBED__?.conversationId?.trim();
+  if (embedConvId && VALID_SESSION_ID_REGEX.test(embedConvId)) {
+    return embedConvId;
+  }
+
   const params = new URLSearchParams(window.location.search);
-  const querySessionId = params.get('session_id')?.trim();
-  if (
-    querySessionId &&
-    isConfiguredToken(querySessionId) &&
-    VALID_SESSION_ID_REGEX.test(querySessionId)
-  ) {
+  const querySessionId = (params.get('session_id') || params.get('conversationId'))?.trim();
+  if (querySessionId && VALID_SESSION_ID_REGEX.test(querySessionId)) {
     return querySessionId;
-  }
-
-  const cfgSessionId = window.__STUDIO_CONFIG__?.sessionId;
-  if (isConfiguredToken(cfgSessionId)) {
-    const trimmed = String(cfgSessionId).trim();
-    if (VALID_SESSION_ID_REGEX.test(trimmed)) {
-      return trimmed;
-    }
-  }
-
-  const pathMatch = window.location.pathname.match(/\/brain\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/);
-  if (pathMatch && pathMatch[1]) {
-    return pathMatch[1];
   }
 
   return '';
@@ -185,22 +159,24 @@ export function getSessionId(): string | null {
  */
 export function setActiveSessionId(id: string): void {
   const trimmed = id.trim();
-  if (!trimmed || !/^[a-zA-Z0-9_-]{1,128}$/.test(trimmed)) {
+  if (!trimmed || !VALID_SESSION_ID_REGEX.test(trimmed)) {
     throw new Error(
       `Invalid session_id "${id}". Must be 1-128 alphanumeric, underscore, or hyphen characters.`
     );
   }
 
   activeSessionId = trimmed;
-  if (window.__STUDIO_CONFIG__) {
-    window.__STUDIO_CONFIG__.sessionId = trimmed;
+  if (window.sidecar) {
+    window.sidecar.conversationId = trimmed;
   }
 
   if (
+    !isInlineEmbed() &&
     getStudioMode() === 'full' &&
     (window.location.protocol === 'http:' || window.location.protocol === 'https:')
   ) {
     const url = new URL(window.location.href);
+    url.searchParams.set('conversationId', trimmed);
     url.searchParams.set('session_id', trimmed);
     window.history.replaceState({}, '', url.toString());
   }
@@ -218,21 +194,20 @@ export function onSessionChange(cb: (sessionId: string) => void): void {
 }
 
 /**
- * Resolve the initial studio view mode ('preview' or 'full') from environment.
+ * Determine whether the studio is running in compact 'preview' mode or 'full' studio mode.
+ * Inline `<agent-embed>` widgets always use 'preview' mode to fit the 500px chat height budget.
+ * Aux Pane embeds automatically switch to 'full' mode when widened/maximized (>= 760px).
  */
-function resolveInitialStudioMode(): StudioMode {
+export function getStudioMode(): StudioMode {
+  if (isInlineEmbed()) {
+    return 'preview';
+  }
+
   const modeParam = new URLSearchParams(window.location.search).get('mode');
   if (modeParam === 'preview') {
     return 'preview';
   }
   if (modeParam === 'full') {
-    return 'full';
-  }
-
-  if (window.__STUDIO_CONFIG__?.mode === 'preview') {
-    return 'preview';
-  }
-  if (window.__STUDIO_CONFIG__?.mode === 'full') {
     return 'full';
   }
 
@@ -243,45 +218,66 @@ function resolveInitialStudioMode(): StudioMode {
     inIframe = true;
   }
 
-  const isEmbeddedProtocol =
-    window.location.protocol === 'about:' ||
-    window.location.href.startsWith('about:srcdoc') ||
-    window.location.pathname === 'srcdoc';
-
-  if (inIframe || isEmbeddedProtocol) {
-    return 'preview';
+  if (!inIframe) {
+    return 'full';
   }
 
-  return 'full';
+  return window.innerWidth >= 760 ? 'full' : 'preview';
 }
 
 /**
- * Determine whether the studio is running in inline 'preview' mode or 'full' studio mode.
- */
-export function getStudioMode(): StudioMode {
-  return resolveInitialStudioMode();
-}
-
-/**
- * Construct the URL to open the Full Studio in a top-level browser tab for the active session.
+ * Construct the URL to open Full Mode in a top-level browser tab while preserving the sidecar token and conversation ID.
  */
 export function getFullStudioUrl(): string {
-  return `${getApiBaseUrl()}/?mode=full&session_id=${encodeURIComponent(getActiveSessionId())}`;
+  const sid = getActiveSessionId();
+
+  if (window.__STUDIO_EMBED__?.baseUrl) {
+    const url = new URL(window.__STUDIO_EMBED__.baseUrl);
+    url.searchParams.set('mode', 'full');
+    if (window.__STUDIO_EMBED__.token) {
+      url.searchParams.set('token', window.__STUDIO_EMBED__.token);
+    }
+    if (sid) {
+      url.searchParams.set('conversationId', sid);
+      url.searchParams.set('session_id', sid);
+    }
+    return url.toString();
+  }
+
+  const currentParams = new URLSearchParams(window.location.search);
+  let baseHref = window.location.href;
+
+  if (window.location.protocol === 'plugin:') {
+    const portMatch = window.location.hostname.match(/-(\d+)$/);
+    if (portMatch) {
+      baseHref = `http://127.0.0.1:${portMatch[1]}/`;
+    }
+  }
+
+  const url = new URL(baseHref);
+  for (const [k, v] of currentParams.entries()) {
+    url.searchParams.set(k, v);
+  }
+  url.searchParams.set('mode', 'full');
+  if (sid) {
+    url.searchParams.set('conversationId', sid);
+    url.searchParams.set('session_id', sid);
+  }
+  return url.toString();
 }
 
 /**
  * Fetch the latest active session ID from the sidecar server.
  */
 export async function fetchActiveSessionId(): Promise<string | null> {
-  const baseUrl = getApiBaseUrl();
-  const res = await fetch(`${baseUrl}/api/session/active`, { cache: 'no-store' });
+  const res = await sidecarFetch('/api/session/active');
   if (!res.ok) {
     throw new Error(`Failed to fetch active session ID: HTTP ${res.status} ${res.statusText}`);
   }
   const data = await res.json();
   const resolved = typeof data.sessionId === 'string' && data.sessionId ? data.sessionId : null;
   if (resolved && !activeSessionId) {
-    activeSessionId = resolved;
+    setActiveSessionId(resolved);
   }
   return resolved;
 }
@@ -290,8 +286,7 @@ export async function fetchActiveSessionId(): Promise<string | null> {
  * Fetch the list of recent sessions discovered by the sidecar server.
  */
 export async function fetchRecentSessions(): Promise<SessionSummary[]> {
-  const baseUrl = getApiBaseUrl();
-  const res = await fetch(`${baseUrl}/api/sessions`, { cache: 'no-store' });
+  const res = await sidecarFetch('/api/sessions');
   if (!res.ok) {
     throw new Error(`Failed to fetch recent sessions: HTTP ${res.status} ${res.statusText}`);
   }

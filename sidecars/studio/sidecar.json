@@ -4,8 +4,18 @@
   "restart_policy": "always",
   "display_name": "Paint Studio",
   "description": "Interactive multi-layer drawing, PSD editing, and Gemini AI image refinement studio sidecar for Antigravity.",
+  "has_web_ui": true,
+  "ui_config": {
+    "display_name": "Paint Studio",
+    "views": [
+      {
+        "path": "/",
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "title": "Paint Studio"
+      }
+    ]
+  },
   "env": {
-    "PORT": "7777",
     "MODEL": "gemini-3.1-flash-lite-image"
   }
 }

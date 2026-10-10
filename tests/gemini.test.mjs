@@ -49,9 +49,19 @@ describe('GeminiRefineService & STYLE_PRESETS Validation', () => {
     assert.strictEqual(service.model, 'gemini-3.1-flash-lite-image');
   });
 
-  test('STYLE_PRESETS contains canonical keys: auto, ui_mockup, diagram, icon, sketch, realistic', () => {
+  test('STYLE_PRESETS contains all original artistic presets including beautify and watercolor', () => {
     assert.ok(STYLE_PRESETS, 'STYLE_PRESETS must be exported');
-    const requiredKeys = ['auto', 'ui_mockup', 'diagram', 'icon', 'sketch', 'realistic'];
+    const requiredKeys = [
+      'auto',
+      'beautify',
+      'apply-notes',
+      'watercolor',
+      'concept-art',
+      'vector',
+      'pixel-art',
+      '3d-clay',
+      'anime',
+    ];
     for (const key of requiredKeys) {
       assert.equal(
         typeof STYLE_PRESETS[key],

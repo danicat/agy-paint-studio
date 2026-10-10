@@ -18,7 +18,10 @@ import type { CanvasEngine } from '../engine/CanvasEngine.ts';
 import { SelectionTool } from '../engine/tools/SelectionTool.ts';
 import { exportPsdFile, importPsdFile, serializePsd } from '../utils/psd.ts';
 import {
-  getApiBaseUrl,
+  sidecarFetch,
+  getWorkspaceUris,
+  sendAgentMessage,
+  fetchActiveSessionId,
   getSessionId,
   setActiveSessionId,
   onSessionChange,
@@ -62,6 +65,12 @@ export class Header {
         this.updateSessionUI();
       }
     });
+
+    if (!this.sessionId) {
+      fetchActiveSessionId().catch((err) => {
+        console.warn('[Header] Could not auto-resolve active session ID:', err);
+      });
+    }
 
     this.engine.addZoomChangeListener((zoom) => {
       const zoomBtn = this.container.querySelector('#zoom-reset-btn');
@@ -363,51 +372,61 @@ export class Header {
 
     bar.innerHTML = `
       <div class="ai-preset-group" role="group" aria-label="AI Style Presets">
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="auto" title="Auto: Smart AI polish while preserving composition">
+        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="beautify" title="Beautify: Creatively interpret sketch and bring it to life">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"></path>
           </svg>
-          <span>Auto</span>
+          <span>Beautify</span>
         </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="sketch" title="Sketch: Clean ink linework and shading">
+        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="apply-notes" title="Apply Notes: Execute drawn or written annotation edits and remove markings">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 20h9"></path>
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
           </svg>
-          <span>Sketch</span>
+          <span>Notes</span>
         </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="ui_mockup" title="UI Mockup: Clean modern application interface">
+        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="watercolor" title="Watercolor: Expressive wet-on-wet watercolour painting on textured paper">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-            <line x1="3" y1="9" x2="21" y2="9"></line>
-            <line x1="9" y1="21" x2="9" y2="9"></line>
+            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
           </svg>
-          <span>UI</span>
+          <span>Watercolor</span>
         </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="diagram" title="Diagram: Crisp technical architecture or flow diagram">
+        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="concept-art" title="Concept Art: Polished digital concept art with cinematic lighting">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="6" height="6" rx="1"></rect>
-            <rect x="15" y="3" width="6" height="6" rx="1"></rect>
-            <rect x="9" y="15" width="6" height="6" rx="1"></rect>
-            <path d="M6 9v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V9"></path>
-            <line x1="12" y1="13" x2="12" y2="15"></line>
+            <path d="m8 3 4 8 5-5 5 15H2L8 3z"></path>
           </svg>
-          <span>Diagram</span>
+          <span>Concept Art</span>
         </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="icon" title="Icon: Crisp vector-style icon with vibrant gradients">
+        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="vector" title="Vector: Sharp minimalist vector graphic with bold outlines and gradients">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
             <polyline points="2 17 12 22 22 17"></polyline>
             <polyline points="2 12 12 17 22 12"></polyline>
           </svg>
-          <span>Icon</span>
+          <span>Vector</span>
         </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="realistic" title="Realistic: Photorealistic lighting and materials">
+        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="pixel-art" title="Pixel Art: Clean 16-bit retro pixel art sprite">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <circle cx="12" cy="12" r="4"></circle>
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
           </svg>
-          <span>Realistic</span>
+          <span>Pixel Art</span>
+        </button>
+        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="3d-clay" title="3D Clay: Tactile 3D clay model with soft studio lighting">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+          </svg>
+          <span>3D Clay</span>
+        </button>
+        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="anime" title="Anime: Lush hand-painted studio anime illustration">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+          <span>Anime</span>
         </button>
       </div>
       <input
@@ -432,7 +451,7 @@ export class Header {
 
     const triggerAiRefine = async (presetOverride?: string) => {
       const prompt = promptInput.value.trim();
-      const stylePreset = presetOverride || 'auto';
+      const stylePreset = presetOverride || 'beautify';
       if (!presetOverride && !prompt) {
         NotificationManager.info('Type a prompt in the AI bar or click a style preset.');
         promptInput.focus();
@@ -448,11 +467,9 @@ export class Header {
       try {
         const compCanvas = this.engine.getCompositeCanvas();
         const base64Data = compCanvas.toDataURL('image/png');
-        const baseUrl = getApiBaseUrl();
 
-        const res = await fetch(`${baseUrl}/api/ai/refine`, {
+        const res = await sidecarFetch('/api/ai/refine', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             image: base64Data,
             stylePreset,
@@ -1091,9 +1108,16 @@ export class Header {
     // Fetch filesystem info from sidecar server to populate default directory and quick pills
     (async () => {
       try {
-        const baseUrl = getApiBaseUrl();
-        const sid = this.sessionId ? `?session_id=${encodeURIComponent(this.sessionId)}` : '';
-        const res = await fetch(`${baseUrl}/api/fs/info${sid}`);
+        const workspaceUris = await getWorkspaceUris();
+        const query = new URLSearchParams();
+        if (this.sessionId) {
+          query.set('session_id', this.sessionId);
+        }
+        if (workspaceUris.length > 0) {
+          query.set('workspace_uri', workspaceUris[0]);
+        }
+        const qs = query.toString();
+        const res = await sidecarFetch(`/api/fs/info${qs ? `?${qs}` : ''}`);
         if (!res.ok) return;
         const info = await res.json();
         if (!this.lastSaveDirectory && info.defaultDir) {
@@ -1120,8 +1144,8 @@ export class Header {
           });
           dirPillsEl.appendChild(pill);
         }
-      } catch {
-        // Keep manual directory input if /api/fs/info is unreachable
+      } catch (err) {
+        console.warn('[Header] Failed to load filesystem info:', err);
       }
     })();
 
@@ -1153,15 +1177,15 @@ export class Header {
       confirmBtn.textContent = 'Saving...';
 
       try {
+        const workspaceUris = await getWorkspaceUris();
         const data = encodePayloadBase64(currentFormat);
-        const baseUrl = getApiBaseUrl();
-        const res = await fetch(`${baseUrl}/api/fs/save`, {
+        const res = await sidecarFetch('/api/fs/save', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             directory,
             filename: finalFilename,
             data,
+            workspaceUris,
           }),
         });
 
@@ -1272,12 +1296,10 @@ export class Header {
 
       const comp = this.engine.getCompositeCanvas();
       const pngBase64 = comp.toDataURL('image/png');
-      const baseUrl = getApiBaseUrl();
 
-      // 1. Save PNG artifact to session
-      const pngRes = await fetch(`${baseUrl}/api/artifact`, {
+      // 1. Save PNG artifact to session brain directory
+      const pngRes = await sidecarFetch('/api/artifact', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: this.sessionId,
           filename: pngFilename,
@@ -1291,27 +1313,9 @@ export class Header {
       }
       const pngResult = await pngRes.json();
 
-      // 2. Deliver PNG message directly to the active Antigravity chat session via /api/send-to-chat
-      const chatRes = await fetch(`${baseUrl}/api/send-to-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: this.sessionId,
-          filename: pngFilename
-        })
-      });
-
-      if (!chatRes.ok) {
-        const errText = await chatRes.text();
-        let errDetail = errText || chatRes.statusText;
-        try {
-          const parsed = JSON.parse(errText);
-          if (parsed.error) errDetail = parsed.error;
-        } catch {
-          // keep raw errDetail
-        }
-        throw new Error(`Saved artifact (${pngResult.path}), but failed to send to chat: ${errDetail}`);
-      }
+      // 2. Deliver PNG message directly to the active Antigravity conversation via window.sidecar.agent
+      const messageContent = `![${pngFilename}](${pngResult.path})\n\n*Drawing sent from Paint Studio.*`;
+      await sendAgentMessage(messageContent, this.sessionId);
 
       NotificationManager.success(
         `Delivered "${pngFilename}" directly to Antigravity chat!`

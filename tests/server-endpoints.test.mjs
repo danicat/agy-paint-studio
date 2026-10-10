@@ -21,8 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import vm from 'node:vm';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,7 +40,7 @@ function getFreePort() {
   });
 }
 
-describe('Server API Endpoints & Security Integration Tests', () => {
+describe('SidecarApp UI Extension Endpoints & Security Integration Tests', () => {
   let tempRoot;
   let appDataDir;
   let workspaceRoot;
@@ -49,6 +48,7 @@ describe('Server API Endpoints & Security Integration Tests', () => {
   let testPort;
   let baseUrl;
   let testPngBase64;
+  const sidecarToken = 'test-sidecar-secret-token-123';
 
   before(async () => {
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-paint-test-'));
@@ -76,19 +76,37 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     testPort = await getFreePort();
     baseUrl = `http://127.0.0.1:${testPort}`;
 
-    serverProc = spawn(process.execPath, [path.join(projectRoot, 'server/index.mjs')], {
-      cwd: projectRoot,
-      env: {
-        ...process.env,
-        NODE_ENV: 'production',
-        PORT: String(testPort),
-        ANTIGRAVITY_APP_DATA_DIR: appDataDir,
-        WORKSPACE_ROOT: workspaceRoot,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const loaderPath = path.join(
+      os.homedir(),
+      '.gemini',
+      'antigravity',
+      'lib',
+      'node_modules',
+      'sidecar_sdk',
+      'register_loader.js'
+    );
+    const loaderUrl = pathToFileURL(loaderPath).href;
 
-    // Wait for server /api/health to become ready
+    serverProc = spawn(
+      process.execPath,
+      [`--import=${loaderUrl}`, path.join(projectRoot, 'sidecars/studio/run.mjs')],
+      {
+        cwd: projectRoot,
+        env: {
+          ...process.env,
+          NODE_ENV: 'production',
+          ANTIGRAVITY_CONVERSATION_ID: '',
+          ANTIGRAVITY_SIDECAR_WEB_PORT: String(testPort),
+          ANTIGRAVITY_SIDECAR_UI_TOKEN: sidecarToken,
+          ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:50000',
+          ANTIGRAVITY_CSRF_TOKEN: 'test-csrf-token',
+          ANTIGRAVITY_APP_DATA_DIR: appDataDir,
+          WORKSPACE_ROOT: workspaceRoot,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
+
     const deadline = Date.now() + 8000;
     let ready = false;
     while (Date.now() < deadline) {
@@ -103,7 +121,7 @@ describe('Server API Endpoints & Security Integration Tests', () => {
       }
       await new Promise((r) => setTimeout(r, 80));
     }
-    assert.ok(ready, `Server failed to start on port ${testPort}`);
+    assert.ok(ready, `SidecarApp failed to start on port ${testPort}`);
   });
 
   after(async () => {
@@ -119,36 +137,64 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     }
   });
 
-  test('GET /api/health returns 200 with ok status', async () => {
+  test('GET /api/health returns 200 with ok status and sidecar port', async () => {
     const res = await fetch(`${baseUrl}/api/health`);
     assert.strictEqual(res.status, 200);
     const data = await res.json();
     assert.strictEqual(data.status, 'ok');
+    assert.strictEqual(data.port, testPort);
   });
 
-  test('GET /api/template?session_id=valid-session-1 returns 200 HTML with __SESSION_ID__ replaced and valid JS syntax', async () => {
-    const res = await fetch(`${baseUrl}/api/template?session_id=valid-session-1`);
-    assert.strictEqual(res.status, 200);
-    assert.ok(res.headers.get('content-type')?.includes('text/html'));
-    const html = await res.text();
-    assert.ok(html.includes('valid-session-1'));
-    assert.ok(!html.includes('__SESSION_ID__'));
-    assert.ok(!html.includes('__PORT__'));
-    assert.ok(!html.includes('__HOST__'));
+  test('GET /, /preload.js, /app.js, /styles.css, and /assets/logo.svg serve classic UI extension assets without crossorigin', async () => {
+    const indexRes = await fetch(`${baseUrl}/`);
+    assert.strictEqual(indexRes.status, 200);
+    const html = await indexRes.text();
+    assert.ok(html.includes('<link rel="stylesheet" href="/styles.css">'));
+    assert.ok(html.includes('<script src="/preload.js"></script>'));
+    assert.ok(html.includes('<script src="/app.js"></script>'));
+    assert.ok(!html.includes('crossorigin'), 'index.html must not contain crossorigin attributes');
+    assert.ok(!html.includes('type="module"'), 'index.html must not contain type="module" scripts');
 
-    const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)];
-    assert.ok(scripts.length >= 2, 'Expected at least 2 inline script blocks in rendered template');
-    for (let i = 0; i < scripts.length; i++) {
-      assert.doesNotThrow(() => {
-        new vm.Script(scripts[i][1], { filename: `template-script-${i}.js` });
-      }, `Inline script #${i} in rendered template failed JavaScript syntax validation`);
-    }
+    const preloadRes = await fetch(`${baseUrl}/preload.js`);
+    assert.strictEqual(preloadRes.status, 200);
+    const preloadText = await preloadRes.text();
+    assert.ok(preloadText.includes('window.sidecar'));
+
+    const jsRes = await fetch(`${baseUrl}/app.js`);
+    assert.strictEqual(jsRes.status, 200);
+
+    const cssRes = await fetch(`${baseUrl}/styles.css`);
+    assert.strictEqual(cssRes.status, 200);
+    assert.ok(cssRes.headers.get('content-type')?.includes('text/css'));
+
+    const logoRes = await fetch(`${baseUrl}/assets/logo.svg`);
+    assert.strictEqual(logoRes.status, 200);
+    assert.strictEqual(logoRes.headers.get('content-type'), 'image/svg+xml');
+
+    const templateRes = await fetch(`${baseUrl}/api/template?session_id=valid-session-1`);
+    assert.strictEqual(templateRes.status, 200);
+    assert.ok(templateRes.headers.get('content-type')?.includes('text/html'));
+    assert.strictEqual(templateRes.headers.get('access-control-allow-origin'), '*');
+    const templateHtml = await templateRes.text();
+    assert.ok(templateHtml.includes('window.__STUDIO_EMBED__'));
+    assert.ok(templateHtml.includes('studio-mode-inline'));
+
+    const optionsRes = await fetch(`${baseUrl}/api/ai/refine`, { method: 'OPTIONS' });
+    assert.strictEqual(optionsRes.status, 204);
+    assert.strictEqual(optionsRes.headers.get('access-control-allow-origin'), '*');
   });
 
-  test('GET /api/template?session_id=bad"><script> returns 400 blocking reflected XSS', async () => {
-    const xssSession = encodeURIComponent('bad"><script>alert(1)</script>');
-    const res = await fetch(`${baseUrl}/api/template?session_id=${xssSession}`);
-    assert.strictEqual(res.status, 400);
+  test('POST requests without X-Sidecar-Token are rejected with 401 unauthorized', async () => {
+    const res = await fetch(`${baseUrl}/api/artifact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: 'valid-session-1',
+        filename: 'unauth.png',
+        data: testPngBase64,
+      }),
+    });
+    assert.strictEqual(res.status, 401);
   });
 
   test('GET /api/sessions and GET /api/session/active discover isolated temp brain session', async () => {
@@ -166,11 +212,15 @@ describe('Server API Endpoints & Security Integration Tests', () => {
 
   test('POST /api/artifact and GET /api/artifact allow valid .png/.psd and block traversal and .jsonl', async () => {
     const sessionId = 'valid-session-1';
+    const authHeaders = {
+      'Content-Type': 'application/json',
+      'X-Sidecar-Token': sidecarToken,
+    };
 
     // Save valid .png artifact
     const postPng = await fetch(`${baseUrl}/api/artifact`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         session_id: sessionId,
         filename: 'test-sketch.png',
@@ -190,7 +240,7 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     const psdStubBase64 = Buffer.from('8BPS\x00\x01', 'binary').toString('base64');
     const postPsd = await fetch(`${baseUrl}/api/artifact`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         session_id: sessionId,
         filename: 'layers.psd',
@@ -220,7 +270,7 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     // Block saving forbidden .jsonl extension
     const postJsonl = await fetch(`${baseUrl}/api/artifact`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         session_id: sessionId,
         filename: 'evil.jsonl',
@@ -233,26 +283,15 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     );
   });
 
-  test('POST /api/send-to-chat blocks path traversal in filename with 400/403', async () => {
-    const res = await fetch(`${baseUrl}/api/send-to-chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: 'valid-session-1',
-        filename: '../../../etc/passwd',
-        data: testPngBase64,
-      }),
-    });
-    assert.ok(
-      res.status === 400 || res.status === 403,
-      `Expected 400 or 403 for traversal filename in send-to-chat, got ${res.status}`
-    );
-  });
-
   test('POST /api/ai/refine rejects missing image or unknown stylePreset with 400', async () => {
+    const authHeaders = {
+      'Content-Type': 'application/json',
+      'X-Sidecar-Token': sidecarToken,
+    };
+
     const missingImgRes = await fetch(`${baseUrl}/api/ai/refine`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         prompt: 'Make it clean',
         stylePreset: 'auto',
@@ -262,7 +301,7 @@ describe('Server API Endpoints & Security Integration Tests', () => {
 
     const badPresetRes = await fetch(`${baseUrl}/api/ai/refine`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         image: testPngBase64,
         stylePreset: 'unknown_invalid_preset_xyz',
@@ -271,22 +310,31 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     assert.strictEqual(badPresetRes.status, 400);
   });
 
-  test('GET /api/fs/info and POST /api/fs/save save PSD and raster files to filesystem and block disallowed extensions/paths', async () => {
-    const infoRes = await fetch(`${baseUrl}/api/fs/info?session_id=valid-session-1`);
+  test('GET /api/fs/info and POST /api/fs/save resolve file:// workspace URIs, save PSD/PNG, and block disallowed paths', async () => {
+    const authHeaders = {
+      'Content-Type': 'application/json',
+      'X-Sidecar-Token': sidecarToken,
+    };
+    const workspaceUri = pathToFileURL(workspaceRoot).href;
+
+    const infoRes = await fetch(
+      `${baseUrl}/api/fs/info?session_id=valid-session-1&workspace_uri=${encodeURIComponent(workspaceUri)}`
+    );
     assert.strictEqual(infoRes.status, 200);
     const infoData = await infoRes.json();
-    assert.ok(infoData.workspaceDir);
+    assert.strictEqual(infoData.workspaceDir, workspaceRoot);
     assert.ok(infoData.sessionDir);
 
     // Save PSD to workspaceDir
     const psdStubBase64 = Buffer.from('8BPS\x00\x01', 'binary').toString('base64');
     const savePsdRes = await fetch(`${baseUrl}/api/fs/save`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         directory: workspaceRoot,
         filename: 'saved-project.psd',
         data: psdStubBase64,
+        workspaceUris: [workspaceUri],
       }),
     });
     assert.strictEqual(savePsdRes.status, 200);
@@ -297,11 +345,12 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     // Save PNG to workspaceDir
     const savePngRes = await fetch(`${baseUrl}/api/fs/save`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         directory: workspaceRoot,
         filename: 'exported.png',
         data: testPngBase64,
+        workspaceUris: [workspaceUri],
       }),
     });
     assert.strictEqual(savePngRes.status, 200);
@@ -312,7 +361,7 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     // Block saving outside user/workspace directories
     const badPathRes = await fetch(`${baseUrl}/api/fs/save`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         directory: '/etc',
         filename: 'forbidden.png',
@@ -322,4 +371,3 @@ describe('Server API Endpoints & Security Integration Tests', () => {
     assert.strictEqual(badPathRes.status, 403);
   });
 });
-

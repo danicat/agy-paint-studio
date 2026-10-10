@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { spawn, execSync } from 'node:child_process';
+import { SidecarApp, Response } from 'sidecar_sdk';
 import { GeminiRefineService, STYLE_PRESETS } from './services/gemini.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,7 +25,6 @@ const pluginRoot = path.resolve(__dirname, '..');
 const distPath = path.join(pluginRoot, 'dist');
 
 const SESSION_ID_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
-const SEND_TO_CHAT_FILENAME_REGEX = /^[a-zA-Z0-9_\-]+\.(png|jpg|jpeg|webp)$/i;
 const ALLOWED_ARTIFACT_EXTENSIONS = new Set([
   '.psd',
   '.png',
@@ -36,15 +34,64 @@ const ALLOWED_ARTIFACT_EXTENSIONS = new Set([
   '.svg',
   '.gif',
 ]);
-const MAX_JSON_BODY_BYTES = 50 * 1024 * 1024; // 50MB
-const AGENTAPI_TIMEOUT_MS = 15_000; // 15 seconds
 
-let activeServerPort = null;
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.psd': 'image/vnd.adobe.photoshop',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.ico': 'image/x-icon',
+};
 
 function createHttpError(message, statusCode) {
   const err = new Error(message);
   err.statusCode = statusCode;
   return err;
+}
+
+function withErrorHandling(handler) {
+  return async (data) => {
+    try {
+      return await handler(data || {});
+    } catch (err) {
+      let statusCode = err.statusCode || 500;
+      if (!err.statusCode) {
+        const msg = err.message || '';
+        if (msg.includes('timed out')) {
+          statusCode = 504;
+        } else if (msg.includes('Access denied') || msg.includes('Illegal filename')) {
+          statusCode = 400;
+        } else if (msg.includes('not found') || msg.includes('Not found')) {
+          statusCode = 404;
+        } else if (
+          msg.includes('Invalid') ||
+          msg.includes('Missing') ||
+          msg.includes('Unsupported') ||
+          msg.includes('Malformed')
+        ) {
+          statusCode = 400;
+        } else if (msg.includes('Authentication failed')) {
+          statusCode = 401;
+        }
+      }
+      console.error(`[agy-paint] API error (${statusCode}):`, err.message);
+      return new Response(JSON.stringify({ error: err.message, statusCode }), {
+        contentType: 'application/json; charset=utf-8',
+        status: statusCode,
+      });
+    }
+  };
 }
 
 // Determine Antigravity app data directory portably with fail-fast validation
@@ -89,7 +136,7 @@ export function getAppDataDir() {
   }
 
   throw createHttpError(
-    `Antigravity app data directory not found. Set ANTIGRAVITY_APP_DATA_DIR to a valid directory.`,
+    'Antigravity app data directory not found. Set ANTIGRAVITY_APP_DATA_DIR to a valid directory.',
     500
   );
 }
@@ -162,40 +209,14 @@ function getRecentSessions() {
   return list.slice(0, 20).map(({ id, title, updatedAt }) => ({ id, title, updatedAt }));
 }
 
-// Discover latest active Antigravity session ID from brain directories
 function getActiveSessionId() {
+  if (process.env.ANTIGRAVITY_CONVERSATION_ID) {
+    return process.env.ANTIGRAVITY_CONVERSATION_ID;
+  }
   const recent = getRecentSessions();
   return recent.length > 0 ? recent[0].id : null;
 }
 
-// Render dynamic canvas template injecting runtime PORT, HOST, and validated SESSION_ID
-export function renderCanvasTemplate({ port, host = '127.0.0.1', sessionId } = {}) {
-  const config = getConfig();
-  const actualPort = port ?? activeServerPort ?? config.port;
-  const actualHost = host || config.host || '127.0.0.1';
-  const resolvedSessionId =
-    sessionId !== undefined ? sessionId : (getActiveSessionId() || 'standalone');
-
-  if (typeof resolvedSessionId !== 'string' || !SESSION_ID_REGEX.test(resolvedSessionId)) {
-    throw createHttpError(
-      `Invalid session_id "${resolvedSessionId}" for template rendering. Must match ${SESSION_ID_REGEX}.`,
-      400
-    );
-  }
-
-  const templatePath = path.join(pluginRoot, 'skills', 'paint-studio', 'template.html');
-  if (!fs.existsSync(templatePath)) {
-    throw createHttpError(`Template not found at: ${templatePath}`, 500);
-  }
-
-  let html = fs.readFileSync(templatePath, 'utf-8');
-  html = html.replace(/"__PORT__"/g, JSON.stringify(String(actualPort)));
-  html = html.replace(/"__HOST__"/g, JSON.stringify(String(actualHost)));
-  html = html.replace(/"__SESSION_ID__"/g, JSON.stringify(resolvedSessionId));
-  return html;
-}
-
-// Validate artifact relative path and enforce allowed extensions & directory containment
 function validateArtifactRelativePath(relPath) {
   if (!relPath || typeof relPath !== 'string' || !relPath.trim()) {
     throw createHttpError('Missing or empty artifact filename/path.', 400);
@@ -209,10 +230,7 @@ function validateArtifactRelativePath(relPath) {
 
   const normalized = relPath.replace(/\\/g, '/');
   const segments = normalized.split('/');
-  if (
-    relPath.includes('..') ||
-    segments.some((seg) => seg === '..' || seg === '.')
-  ) {
+  if (relPath.includes('..') || segments.some((seg) => seg === '..' || seg === '.')) {
     throw createHttpError(
       `Access denied: path traversal sequence ".." is not allowed in "${relPath}".`,
       400
@@ -241,7 +259,6 @@ function validateArtifactRelativePath(relPath) {
   return { normalized, ext };
 }
 
-// Scan conversation artifacts and media files (excluding .system_generated)
 function scanConversationMedia(sessionDir) {
   if (!fs.existsSync(sessionDir)) {
     return [];
@@ -307,278 +324,158 @@ function scanConversationMedia(sessionDir) {
   return results.sort((a, b) => b.modifiedTime - a.modifiedTime);
 }
 
-// Read configuration from environment variables (no hardcoded project fallback)
 export function getConfig() {
-  const portStr = process.env.PORT !== undefined ? String(process.env.PORT).trim() : '7777';
-  const port = Number.parseInt(portStr, 10);
-  if (
-    Number.isNaN(port) ||
-    (port !== 0 && (port < 1024 || port > 65535)) ||
-    String(port) !== portStr
-  ) {
-    throw new Error(
-      `Invalid PORT environment variable: "${portStr}". Must be 0 (ephemeral) or an integer between 1024 and 65535.`
-    );
-  }
-
   return {
-    port,
-    host: process.env.HOST || '127.0.0.1',
     googleCloudProject: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || '',
     location: process.env.GOOGLE_CLOUD_LOCATION || 'global',
     model: process.env.MODEL || 'gemini-3.1-flash-lite-image',
   };
 }
 
-const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.mjs': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.psd': 'image/vnd.adobe.photoshop',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.ttf': 'font/ttf',
-  '.ico': 'image/x-icon',
-};
-
-// Parse JSON request body with strict byte-limit enforcement before buffering
-export function parseJsonBody(req, maxBytes = MAX_JSON_BODY_BYTES) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let bytesRead = 0;
-    let aborted = false;
-
-    req.on('data', (chunk) => {
-      if (aborted) return;
-      const chunkBuf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-      bytesRead += chunkBuf.length;
-      if (bytesRead > maxBytes) {
-        aborted = true;
-        req.destroy();
-        reject(
-          createHttpError(
-            `Payload Too Large: request body exceeds limit of ${maxBytes} bytes.`,
-            413
-          )
-        );
-        return;
-      }
-      chunks.push(chunkBuf);
-    });
-
-    req.on('end', () => {
-      if (aborted) return;
-      if (bytesRead === 0) {
-        resolve({});
-        return;
-      }
-      try {
-        const raw = Buffer.concat(chunks, bytesRead).toString('utf-8');
-        if (!raw.trim()) {
-          resolve({});
-          return;
-        }
-        resolve(JSON.parse(raw));
-      } catch (err) {
-        reject(createHttpError(`Malformed JSON request body: ${err.message}`, 400));
-      }
-    });
-
-    req.on('error', (err) => {
-      if (aborted) return;
-      reject(err);
-    });
-  });
+function parseWorkspaceUri(uri) {
+  if (typeof uri !== 'string' || !uri.trim()) return null;
+  const trimmed = uri.trim();
+  if (trimmed.startsWith('file://')) {
+    return path.resolve(fileURLToPath(trimmed));
+  }
+  return null;
 }
 
-// Find agentapi CLI path with fail-fast validation
-function getAgentApiExecutable() {
-  if (process.env.AGENTAPI_BIN) {
-    const customBin = process.env.AGENTAPI_BIN.trim();
-    if (!fs.existsSync(customBin)) {
+export function createSidecarApp() {
+  const app = new SidecarApp();
+
+  // ---------------------------------------------------------------------------
+  // Static Pages & Assets (re-read from disk on each request)
+  // ---------------------------------------------------------------------------
+  const serveIndexHtml = () => {
+    const indexPath = path.join(distPath, 'index.html');
+    if (!fs.existsSync(indexPath)) {
       throw createHttpError(
-        `Configured AGENTAPI_BIN executable not found at "${customBin}".`,
+        `Built frontend index.html not found at "${indexPath}". Run "npm run build" first.`,
         500
       );
     }
-    return customBin;
-  }
+    console.log('[paint-studio] GET / (index.html)');
+    return fs.readFileSync(indexPath, 'utf-8');
+  };
 
-  const appDataDir = getAppDataDir();
-  const binaryName = process.platform === 'win32' ? 'agentapi.exe' : 'agentapi';
-  const binPath = path.join(appDataDir, 'bin', binaryName);
-  if (fs.existsSync(binPath)) {
-    return binPath;
-  }
-
-  const whichCmd = process.platform === 'win32' ? `where ${binaryName}` : `which ${binaryName}`;
-  try {
-    const resolved = execSync(whichCmd, { stdio: 'pipe', encoding: 'utf-8' }).trim();
-    const firstLine = resolved.split('\n')[0]?.trim();
-    if (firstLine && fs.existsSync(firstLine)) {
-      return firstLine;
-    }
-  } catch (err) {
-    throw createHttpError(
-      `agentapi CLI executable not found at "${binPath}" or in system PATH (${err.message}). ` +
-        `Ensure Google Antigravity is properly installed.`,
-      500
-    );
-  }
-
-  throw createHttpError(
-    `agentapi CLI executable not found at "${binPath}" or in system PATH. ` +
-      `Ensure Google Antigravity is properly installed.`,
-    500
-  );
-}
-
-// Apply strict CORS headers restricted to 'null' (sandboxed srcdoc iframes) or loopback origins
-function applySecurityAndCorsHeaders(req, res, effectivePort) {
-  const origin = req.headers.origin;
-  res.setHeader('Vary', 'Origin');
-
-  if (origin === 'null') {
-    res.setHeader('Access-Control-Allow-Origin', 'null');
-  } else if (
-    typeof origin === 'string' &&
-    /^http:\/\/(127\.0\.0\.1|localhost)(:\d{1,5})?$/.test(origin)
-  ) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
-    res.setHeader('Access-Control-Allow-Origin', `http://127.0.0.1:${effectivePort}`);
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
-  res.setHeader('Access-Control-Allow-Private-Network', 'true');
-  res.setHeader(
-    'Content-Security-Policy',
-    "frame-ancestors 'self' file: vscode-webview: vscode-resource: vscode-file: http://127.0.0.1:* http://localhost:*;"
-  );
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-}
-
-// Request Handler
-export async function handleRequest(req, res) {
-  const startTime = Date.now();
-  res.on('finish', () => {
-    const elapsed = Date.now() - startTime;
-    console.log(
-      `[agy-paint HTTP] ${new Date().toISOString()} ${req.method} ${req.url} -> ${res.statusCode} (${elapsed}ms)`
-    );
-  });
-
-  // Ensure req.destroy() during 413 payload rejection allows the HTTP 413 response to flush cleanly
-  if (typeof req.destroy === 'function' && res && typeof res.once === 'function') {
-    const origDestroy = req.destroy.bind(req);
-    req.destroy = (err) => {
-      if (typeof req.pause === 'function') {
-        req.pause();
-      }
-      if (!res.writableEnded) {
-        res.setHeader('Connection', 'close');
-        res.once('finish', () => origDestroy(err));
-        return req;
-      }
-      return origDestroy(err);
-    };
-  }
-
-  let config;
-  try {
-    config = getConfig();
-  } catch (err) {
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: err.message }));
-    return;
-  }
-
-  const effectivePort = activeServerPort || req.socket?.localPort || config.port || 7777;
-  applySecurityAndCorsHeaders(req, res, effectivePort);
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-
-  const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
-  const pathname = parsedUrl.pathname;
-  const searchParams = parsedUrl.searchParams;
-
-  try {
-    // 1. GET /api/health
-    if (pathname === '/api/health' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(
-        JSON.stringify({
-          status: 'ok',
-          port: effectivePort,
-          host: config.host,
-          uptime: process.uptime(),
-          timestamp: new Date().toISOString(),
-        })
+  const serveAppJs = () => {
+    const jsPath = path.join(distPath, 'app.js');
+    if (!fs.existsSync(jsPath)) {
+      throw createHttpError(
+        `Built frontend app.js not found at "${jsPath}". Run "npm run build" first.`,
+        500
       );
-      return;
     }
+    console.log('[paint-studio] GET /app.js');
+    return fs.readFileSync(jsPath, 'utf-8');
+  };
 
-    // 2. GET /api/template
-    if (pathname === '/api/template' && req.method === 'GET') {
-      const requestedSessionId = searchParams.has('session_id')
-        ? searchParams.get('session_id')
-        : (getActiveSessionId() || 'standalone');
-      const html = renderCanvasTemplate({
-        port: effectivePort,
-        host: config.host,
-        sessionId: requestedSessionId,
+  const serveStylesCss = () => {
+    const cssPath = path.join(distPath, 'styles.css');
+    if (!fs.existsSync(cssPath)) {
+      throw createHttpError(
+        `Built frontend styles.css not found at "${cssPath}". Run "npm run build" first.`,
+        500
+      );
+    }
+    console.log('[paint-studio] GET /styles.css');
+    return new Response(fs.readFileSync(cssPath, 'utf-8'), {
+      contentType: 'text/css; charset=utf-8',
+    });
+  };
+
+  app.page('/', serveIndexHtml);
+  app.page('/index.html', serveIndexHtml);
+  app.page('/app.js', serveAppJs);
+  app.api('/styles.css', serveStylesCss, 'GET');
+
+  app.api(
+    '/assets/logo.svg',
+    () => {
+      const logoPath = path.join(pluginRoot, 'assets', 'logo.svg');
+      return new Response(fs.readFileSync(logoPath, 'utf-8'), {
+        contentType: 'image/svg+xml',
       });
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-      });
-      res.end(html);
-      return;
-    }
+    },
+    'GET'
+  );
 
-    // 3. GET /api/sessions
-    if (pathname === '/api/sessions' && req.method === 'GET') {
-      const sessions = getRecentSessions();
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ sessions }));
-      return;
+  // Register any additional compiled assets in dist/assets/
+  const distAssetsDir = path.join(distPath, 'assets');
+  if (fs.existsSync(distAssetsDir)) {
+    for (const file of fs.readdirSync(distAssetsDir)) {
+      const routePath = `/assets/${file}`;
+      if (routePath === '/assets/logo.svg') {
+        continue;
+      }
+      const ext = path.extname(file).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      const fullPath = path.join(distAssetsDir, file);
+      if (ext === '.js' || ext === '.mjs') {
+        app.page(routePath, () => fs.readFileSync(fullPath, 'utf-8'));
+      } else {
+        app.api(
+          routePath,
+          () => new Response(fs.readFileSync(fullPath), { contentType }),
+          'GET'
+        );
+      }
     }
+  }
 
-    // 4. GET /api/session/active
-    if (pathname === '/api/session/active' && req.method === 'GET') {
-      const activeSession = getActiveSessionId();
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ sessionId: activeSession }));
-      return;
-    }
+  // ---------------------------------------------------------------------------
+  // API Endpoints
+  // ---------------------------------------------------------------------------
 
-    // 5. GET /api/artifacts
-    if (pathname === '/api/artifacts' && req.method === 'GET') {
-      const sessionId = searchParams.get('session_id') || searchParams.get('sessionId');
+  // 1. GET /api/health
+  app.api(
+    '/api/health',
+    () => ({
+      status: 'ok',
+      port: Number(process.env.ANTIGRAVITY_SIDECAR_WEB_PORT),
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    }),
+    'GET'
+  );
+
+  // 2. GET /api/sessions
+  app.api(
+    '/api/sessions',
+    withErrorHandling(() => ({
+      sessions: getRecentSessions(),
+    })),
+    'GET'
+  );
+
+  // 3. GET /api/session/active
+  app.api(
+    '/api/session/active',
+    withErrorHandling(() => ({
+      sessionId: getActiveSessionId(),
+    })),
+    'GET'
+  );
+
+  // 4. GET /api/artifacts
+  app.api(
+    '/api/artifacts',
+    withErrorHandling((data) => {
+      const sessionId = data.session_id || data.sessionId;
       const sessionDir = resolveSessionBrainDir(sessionId);
       const media = scanConversationMedia(sessionDir);
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ artifacts: media, media }));
-      return;
-    }
+      return { artifacts: media, media };
+    }),
+    'GET'
+  );
 
-    // 6. GET /api/artifact & HEAD /api/artifact
-    if (pathname === '/api/artifact' && (req.method === 'GET' || req.method === 'HEAD')) {
-      const sessionId = searchParams.get('session_id') || searchParams.get('sessionId');
-      const filename = searchParams.get('filename') || searchParams.get('path');
+  // 5. GET /api/artifact
+  app.api(
+    '/api/artifact',
+    withErrorHandling((data) => {
+      const sessionId = data.session_id || data.sessionId;
+      const filename = data.filename || data.path;
       const sessionDir = resolveSessionBrainDir(sessionId);
       const { ext } = validateArtifactRelativePath(filename);
 
@@ -621,8 +518,6 @@ export async function handleRequest(req, res) {
 
       const contentType = MIME_TYPES[ext] || 'application/octet-stream';
       const headers = {
-        'Content-Type': contentType,
-        'Content-Length': stat.size,
         'Cache-Control': 'no-cache',
         'X-Content-Type-Options': 'nosniff',
       };
@@ -630,28 +525,24 @@ export async function handleRequest(req, res) {
         headers['Content-Security-Policy'] = "default-src 'none'; sandbox";
       }
 
-      res.writeHead(200, headers);
-      if (req.method === 'HEAD') {
-        res.end();
-        return;
-      }
-
       const fileData = fs.readFileSync(realTargetPath);
-      res.end(fileData);
-      return;
-    }
+      return new Response(fileData, { contentType, status: 200, headers });
+    }),
+    'GET'
+  );
 
-    // 7. POST /api/artifact
-    if (pathname === '/api/artifact' && req.method === 'POST') {
-      const body = await parseJsonBody(req);
-      const sessionId = body.session_id || body.sessionId;
-      const filename = body.filename || body.path;
-      const data = body.data ?? body.image;
+  // 6. POST /api/artifact
+  app.api(
+    '/api/artifact',
+    withErrorHandling((data) => {
+      const sessionId = data.session_id || data.sessionId;
+      const filename = data.filename || data.path;
+      const payload = data.data ?? data.image;
 
       const sessionDir = resolveSessionBrainDir(sessionId);
       validateArtifactRelativePath(filename);
 
-      if (!data || typeof data !== 'string' || !data.trim()) {
+      if (!payload || typeof payload !== 'string' || !payload.trim()) {
         throw createHttpError(
           'Missing or invalid "data" in save artifact request. Expected non-empty base64 string.',
           400
@@ -720,25 +611,29 @@ export async function handleRequest(req, res) {
         }
       }
 
-      const rawBase64 = data.includes(',') ? data.split(',')[1] : data;
+      const rawBase64 = payload.includes(',') ? payload.split(',')[1] : payload;
       const buffer = Buffer.from(rawBase64, 'base64');
       fs.writeFileSync(targetPath, buffer);
 
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ success: true, filename, path: targetPath }));
-      return;
-    }
+      return { success: true, filename, path: targetPath };
+    }),
+    'POST'
+  );
 
-    // 7b. GET /api/fs/info
-    if (pathname === '/api/fs/info' && req.method === 'GET') {
+  // 7. GET /api/fs/info
+  app.api(
+    '/api/fs/info',
+    withErrorHandling((data) => {
       const homeDir = os.homedir();
       const downloadsDir = path.join(homeDir, 'Downloads');
       const desktopDir = path.join(homeDir, 'Desktop');
-      const workspaceDir = process.env.WORKSPACE_ROOT
-        ? path.resolve(process.env.WORKSPACE_ROOT)
-        : process.cwd();
 
-      const sessionId = searchParams.get('session_id') || searchParams.get('sessionId');
+      const hostWorkspaceDir = parseWorkspaceUri(data.workspace_uri || data.workspaceUri);
+      const workspaceDir =
+        hostWorkspaceDir ||
+        (process.env.WORKSPACE_ROOT ? path.resolve(process.env.WORKSPACE_ROOT) : process.cwd());
+
+      const sessionId = data.session_id || data.sessionId;
       let sessionDir = null;
       if (sessionId && SESSION_ID_REGEX.test(sessionId)) {
         try {
@@ -749,27 +644,26 @@ export async function handleRequest(req, res) {
       }
 
       const defaultDir = fs.existsSync(downloadsDir) ? downloadsDir : homeDir;
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(
-        JSON.stringify({
-          defaultDir,
-          downloadsDir,
-          desktopDir,
-          homeDir,
-          workspaceDir,
-          sessionDir,
-        })
-      );
-      return;
-    }
+      return {
+        defaultDir,
+        downloadsDir,
+        desktopDir,
+        homeDir,
+        workspaceDir,
+        sessionDir,
+      };
+    }),
+    'GET'
+  );
 
-    // 7c. POST /api/fs/save
-    if (pathname === '/api/fs/save' && req.method === 'POST') {
-      const body = await parseJsonBody(req);
-      const { directory, filename, filePath } = body;
-      const data = body.data ?? body.image;
+  // 8. POST /api/fs/save
+  app.api(
+    '/api/fs/save',
+    withErrorHandling((data) => {
+      const { directory, filename, filePath, workspaceUris } = data;
+      const payload = data.data ?? data.image;
 
-      if (!data || typeof data !== 'string' || !data.trim()) {
+      if (!payload || typeof payload !== 'string' || !payload.trim()) {
         throw createHttpError(
           'Missing or invalid "data" in filesystem save request. Expected non-empty base64 string.',
           400
@@ -787,7 +681,12 @@ export async function handleRequest(req, res) {
       };
 
       let targetPath;
-      if (typeof directory === 'string' && directory.trim() && typeof filename === 'string' && filename.trim()) {
+      if (
+        typeof directory === 'string' &&
+        directory.trim() &&
+        typeof filename === 'string' &&
+        filename.trim()
+      ) {
         if (
           filename.includes('\0') ||
           filename.includes('/') ||
@@ -846,6 +745,15 @@ export async function handleRequest(req, res) {
       if (process.env.WORKSPACE_ROOT) {
         allowedRoots.push(path.resolve(process.env.WORKSPACE_ROOT));
       }
+      if (process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) {
+        allowedRoots.push(path.resolve(process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR));
+      }
+      if (Array.isArray(workspaceUris)) {
+        for (const uri of workspaceUris) {
+          const parsed = parseWorkspaceUri(uri);
+          if (parsed) allowedRoots.push(parsed);
+        }
+      }
       try {
         allowedRoots.push(path.resolve(getAppDataDir()));
       } catch {
@@ -877,26 +785,25 @@ export async function handleRequest(req, res) {
         );
       }
 
-      const rawBase64 = data.includes(',') ? data.split(',')[1] : data;
+      const rawBase64 = payload.includes(',') ? payload.split(',')[1] : payload;
       const buffer = Buffer.from(rawBase64, 'base64');
       fs.writeFileSync(targetPath, buffer);
 
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(
-        JSON.stringify({
-          success: true,
-          filename: path.basename(targetPath),
-          path: targetPath,
-          size: buffer.length,
-        })
-      );
-      return;
-    }
+      return {
+        success: true,
+        filename: path.basename(targetPath),
+        path: targetPath,
+        size: buffer.length,
+      };
+    }),
+    'POST'
+  );
 
-    // 8. POST /api/ai/refine
-    if (pathname === '/api/ai/refine' && req.method === 'POST') {
-      const body = await parseJsonBody(req);
-      const { image, stylePreset, prompt, width, height } = body;
+  // 9. POST /api/ai/refine
+  app.api(
+    '/api/ai/refine',
+    withErrorHandling(async (data) => {
+      const { image, stylePreset, prompt, width, height } = data;
 
       if (!image || typeof image !== 'string' || !image.trim()) {
         throw createHttpError(
@@ -928,424 +835,199 @@ export async function handleRequest(req, res) {
         );
       }
 
+      const config = getConfig();
       const geminiService = new GeminiRefineService(config);
       const result = await geminiService.refineImage({
         image,
         stylePreset: hasStylePreset ? stylePreset : undefined,
         prompt: hasPrompt ? prompt : undefined,
-        width,
-        height,
+        width: width !== undefined ? Number(width) : undefined,
+        height: height !== undefined ? Number(height) : undefined,
       });
 
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(
-        JSON.stringify({
-          status: 'ok',
-          image: result.image,
-          mimeType: result.mimeType,
-          text: result.text,
-        })
-      );
-      return;
-    }
+      return {
+        status: 'ok',
+        image: result.image,
+        mimeType: result.mimeType,
+        text: result.text,
+      };
+    }),
+    'POST'
+  );
 
-    // 9. POST /api/send-to-chat
-    if (pathname === '/api/send-to-chat' && req.method === 'POST') {
-      const body = await parseJsonBody(req);
-      const sessionId = body.session_id || body.sessionId;
-      const { filename, note } = body;
-      const image = body.image ?? body.data;
+  // 10. GET /api/template (Self-contained inline <agent-embed> HTML artifact generator)
+  app.api(
+    '/api/template',
+    withErrorHandling((data) => {
+      const requestedSessionId = data.session_id || data.sessionId || getActiveSessionId() || 'standalone';
+      const sessionId = validateSessionId(requestedSessionId);
 
-      const sessionDir = resolveSessionBrainDir(sessionId);
-      const realSessionDir = fs.realpathSync(sessionDir);
+      const indexPath = path.join(distPath, 'index.html');
+      const cssPath = path.join(distPath, 'styles.css');
+      const jsPath = path.join(distPath, 'app.js');
 
-      if (filename !== undefined && filename !== null) {
-        if (typeof filename !== 'string' || !SEND_TO_CHAT_FILENAME_REGEX.test(filename)) {
-          throw createHttpError(
-            `Invalid filename "${filename}" in send-to-chat request. Must match ${SEND_TO_CHAT_FILENAME_REGEX}.`,
-            400
-          );
-        }
-      }
-
-      let finalFilename;
-      let resolvedPath;
-
-      if (image !== undefined && image !== null && image !== '') {
-        if (typeof image !== 'string' || !image.trim()) {
-          throw createHttpError('Invalid "image" data in send-to-chat request.', 400);
-        }
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        finalFilename = filename || `drawing-${timestamp}.png`;
-        if (!SEND_TO_CHAT_FILENAME_REGEX.test(finalFilename)) {
-          throw createHttpError(
-            `Invalid filename "${finalFilename}" in send-to-chat request.`,
-            400
-          );
-        }
-        resolvedPath = path.resolve(sessionDir, finalFilename);
-        if (!resolvedPath.startsWith(sessionDir + path.sep)) {
-          throw createHttpError(
-            'Access denied: path traversal attempt in send-to-chat filename.',
-            400
-          );
-        }
-
-        const existingLstat = fs.lstatSync(resolvedPath, { throwIfNoEntry: false });
-        if (existingLstat) {
-          let realExisting;
-          try {
-            realExisting = fs.realpathSync(resolvedPath);
-          } catch (err) {
-            throw createHttpError(
-              `Access denied: invalid existing symlink "${finalFilename}": ${err.message}`,
-              400
-            );
-          }
-          if (!realExisting.startsWith(realSessionDir + path.sep)) {
-            throw createHttpError(
-              'Access denied: target file symlink points outside session directory.',
-              400
-            );
-          }
-        }
-
-        const rawBase64 = image.includes(',') ? image.split(',')[1] : image;
-        const buffer = Buffer.from(rawBase64, 'base64');
-        fs.writeFileSync(resolvedPath, buffer);
-
-        const realWrittenPath = fs.realpathSync(resolvedPath);
-        if (!realWrittenPath.startsWith(realSessionDir + path.sep)) {
-          throw createHttpError(
-            'Access denied: resolved file path escapes session directory.',
-            400
-          );
-        }
-      } else if (filename !== undefined && filename !== null) {
-        finalFilename = filename;
-        resolvedPath = path.resolve(sessionDir, finalFilename);
-        if (!resolvedPath.startsWith(sessionDir + path.sep)) {
-          throw createHttpError(
-            'Access denied: path traversal attempt in send-to-chat filename.',
-            400
-          );
-        }
-
-        let realTargetPath;
-        try {
-          realTargetPath = fs.realpathSync(resolvedPath);
-        } catch (err) {
-          throw createHttpError(
-            `Invalid or inaccessible file "${finalFilename}" in session directory: ${err.message}`,
-            400
-          );
-        }
-
-        if (!realTargetPath.startsWith(realSessionDir + path.sep)) {
-          throw createHttpError(
-            'Access denied: resolved file path escapes session directory.',
-            400
-          );
-        }
-      } else {
+      if (!fs.existsSync(indexPath) || !fs.existsSync(cssPath) || !fs.existsSync(jsPath)) {
         throw createHttpError(
-          'Missing "image" (or "data") or "filename" in send-to-chat request.',
-          400
+          `Built frontend assets not found in "${distPath}". Run "npm run build" first.`,
+          500
         );
       }
 
-      const agentApiExe = getAgentApiExecutable();
-      let messageContent = `![${finalFilename}](${resolvedPath})\n\n*Drawing sent from agy-paint canvas.*`;
-      if (typeof note === 'string' && note.trim()) {
-        messageContent = `![${finalFilename}](${resolvedPath})\n\n**Note**: ${note.trim()}\n\n*Drawing sent from agy-paint canvas.*`;
-      }
+      const rawHtml = fs.readFileSync(indexPath, 'utf-8');
+      const rawCss = fs.readFileSync(cssPath, 'utf-8').replace(/<\/style>/gi, '<\\/style>');
+      const rawJs = fs.readFileSync(jsPath, 'utf-8').replace(/<\/script>/gi, '<\\/script>');
 
-      await new Promise((resolve, reject) => {
-        const proc = spawn(
-          agentApiExe,
-          ['send-message', `--title=Drawing: ${finalFilename}`, sessionId, messageContent],
-          { stdio: ['ignore', 'pipe', 'pipe'] }
-        );
+      const port = Number(process.env.ANTIGRAVITY_SIDECAR_WEB_PORT);
+      const token = process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN || '';
+      const baseUrl = `http://127.0.0.1:${port}`;
 
-        let stdout = '';
-        let stderr = '';
-        let timedOut = false;
-
-        const timer = setTimeout(() => {
-          timedOut = true;
-          proc.kill('SIGKILL');
-          reject(
-            createHttpError(
-              `agentapi send-message timed out after ${AGENTAPI_TIMEOUT_MS}ms.`,
-              504
-            )
-          );
-        }, AGENTAPI_TIMEOUT_MS);
-
-        proc.stdout.on('data', (d) => {
-          stdout += d.toString();
-        });
-        proc.stderr.on('data', (d) => {
-          stderr += d.toString();
-        });
-
-        proc.on('close', (code) => {
-          clearTimeout(timer);
-          if (timedOut) return;
-          if (code === 0) {
-            resolve(stdout);
-          } else {
-            reject(
-              createHttpError(
-                `agentapi send-message failed with exit code ${code}: ${stderr || stdout}`,
-                502
-              )
-            );
-          }
-        });
-
-        proc.on('error', (err) => {
-          clearTimeout(timer);
-          if (timedOut) return;
-          reject(
-            createHttpError(
-              `Failed to execute agentapi binary "${agentApiExe}": ${err.message}`,
-              500
-            )
-          );
-        });
+      const embedConfigJson = JSON.stringify({
+        baseUrl,
+        token,
+        conversationId: sessionId,
       });
 
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(
-        JSON.stringify({
-          success: true,
-          filePath: resolvedPath,
-          filename: finalFilename,
-        })
-      );
-      return;
-    }
+      const inlineBridgeJs = `(function() {
+  const cfg = ${embedConfigJson};
+  window.__STUDIO_EMBED__ = cfg;
 
-    // 10. GET / and static assets from dist/ (serving Vite-built app)
-    if (req.method === 'GET' || req.method === 'HEAD') {
-      if (pathname === '/' || pathname === '/index.html') {
-        const indexPath = path.join(distPath, 'index.html');
-        if (!fs.existsSync(indexPath) || !fs.statSync(indexPath).isFile()) {
-          throw createHttpError(
-            `Built frontend index.html not found at "${indexPath}". Run "npm run build" first.`,
-            500
-          );
-        }
-        const content = fs.readFileSync(indexPath);
-        res.writeHead(200, {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Content-Length': content.length,
-          'Cache-Control': 'no-cache',
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'theme-change' && event.data.payload && event.data.payload.cssVariables) {
+      for (const [k, v] of Object.entries(event.data.payload.cssVariables)) {
+        document.documentElement.style.setProperty(k, v);
+      }
+    }
+  });
+
+  function secureFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    headers.set('Content-Type', 'application/json');
+    if (cfg.token) {
+      headers.set('X-Sidecar-Token', cfg.token);
+    }
+    const targetUrl = url.startsWith('http://') || url.startsWith('https://')
+      ? url
+      : cfg.baseUrl + (url.startsWith('/') ? url : '/' + url);
+    return fetch(targetUrl, { ...options, headers });
+  }
+
+  async function resolveProjectId(convId) {
+    if (!convId || convId === 'standalone') return '';
+    try {
+      const res = await secureFetch('/_sidecar/get-conversation-metadata', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId: convId })
+      });
+      if (!res.ok) return '';
+      const data = await res.json();
+      const metaEvent = data && data.response && (data.response.conversationMetadata || data.response.conversation_metadata);
+      const meta = metaEvent && metaEvent.metadata;
+      return (meta && (meta.projectId || meta.project_id)) || '';
+    } catch {
+      return '';
+    }
+  }
+
+  window.sidecar = {
+    conversationId: cfg.conversationId,
+    fetch: secureFetch,
+    getWorkspaceUris: async () => [],
+    onWorkspaceChange: () => () => {},
+    agent: {
+      async sendMessage(message, convId) {
+        const targetConv = convId || window.sidecar.conversationId || cfg.conversationId;
+        const projectId = await resolveProjectId(targetConv);
+        const res = await secureFetch('/_sidecar/send-message', {
+          method: 'POST',
+          body: JSON.stringify({ conversationId: targetConv, message, projectId })
         });
-        if (req.method === 'HEAD') {
-          res.end();
-          return;
-        }
-        res.end(content);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      },
+      async startConversation(message, title) {
+        const projectId = await resolveProjectId(cfg.conversationId);
+        const res = await secureFetch('/_sidecar/new-conversation', {
+          method: 'POST',
+          body: JSON.stringify({ message, title, projectId })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      },
+      async getConversationMetadata(convId) {
+        const res = await secureFetch('/_sidecar/get-conversation-metadata', {
+          method: 'POST',
+          body: JSON.stringify({ conversationId: convId })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      }
+    },
+    ui: {
+      toggleAuxPane(request) {
+        window.parent.postMessage({ type: 'toggle-aux-pane', payload: request }, '*');
+      },
+      toggleConversation(convId) {
+        window.parent.postMessage({ type: 'toggle-conversation', payload: { conversationId: convId } }, '*');
+      }
+    }
+  };
+})();`;
+
+      const inlinedHtml = rawHtml
+        .replace(
+          /class="studio-container studio-mode-preview"/g,
+          'class="studio-container studio-mode-preview studio-mode-inline"'
+        )
+        .replace(
+          /<link\s+rel="stylesheet"\s+href="\/styles\.css"\s*\/?>/i,
+          `<style>\n${rawCss}\n</style>`
+        )
+        .replace(
+          /<script\s+src="\/preload\.js"\s*><\/script>/i,
+          `<script>\n${inlineBridgeJs}\n</script>`
+        )
+        .replace(
+          /<script\s+src="\/app\.js"\s*><\/script>/i,
+          `<script>\n${rawJs}\n</script>`
+        );
+
+      return new Response(inlinedHtml, {
+        contentType: 'text/html; charset=utf-8',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+    }),
+    'GET'
+  );
+
+  // Wrap app.run() so cross-origin requests from inline <agent-embed> widgets succeed with CORS + OPTIONS preflight
+  const origRun = app.run.bind(app);
+  app.run = async () => {
+    const server = await origRun();
+    const origListeners = server.listeners('request');
+    server.removeAllListeners('request');
+    server.on('request', (req, res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Sidecar-Token');
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
         return;
       }
-
-      if (!pathname.startsWith('/api/') && !pathname.includes('\0') && !pathname.includes('..')) {
-        const staticFilePath = path.resolve(distPath, '.' + pathname);
-        if (
-          staticFilePath.startsWith(distPath + path.sep) &&
-          fs.existsSync(staticFilePath) &&
-          fs.statSync(staticFilePath).isFile()
-        ) {
-          const realDist = fs.realpathSync(distPath);
-          const realStatic = fs.realpathSync(staticFilePath);
-          if (realStatic.startsWith(realDist + path.sep)) {
-            const ext = path.extname(realStatic).toLowerCase();
-            const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-            const content = fs.readFileSync(realStatic);
-            const headers = {
-              'Content-Type': contentType,
-              'Content-Length': content.length,
-              'X-Content-Type-Options': 'nosniff',
-            };
-            if (ext === '.svg') {
-              headers['Content-Security-Policy'] = "default-src 'none'; sandbox";
-            }
-            res.writeHead(200, headers);
-            if (req.method === 'HEAD') {
-              res.end();
-              return;
-            }
-            res.end(content);
-            return;
-          }
-        }
+      for (const listener of origListeners) {
+        listener.call(server, req, res);
       }
-    }
-
-    // Fail-fast 404
-    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(
-      JSON.stringify({
-        error: `Resource not found: ${req.method} ${pathname}`,
-        pathname,
-        statusCode: 404,
-      })
-    );
-  } catch (err) {
-    console.error(`[agy-paint] Error processing ${req.method} ${pathname}:`, err);
-    let statusCode = err.statusCode || 500;
-    if (!err.statusCode) {
-      const msg = err.message || '';
-      if (msg.includes('timed out')) {
-        statusCode = 504;
-      } else if (msg.includes('Payload Too Large') || msg.includes('too large')) {
-        statusCode = 413;
-      } else if (msg.includes('Access denied') || msg.includes('Illegal filename')) {
-        statusCode = 400;
-      } else if (msg.includes('not found') || msg.includes('Not found')) {
-        statusCode = 404;
-      } else if (
-        msg.includes('Invalid') ||
-        msg.includes('Missing') ||
-        msg.includes('Unsupported') ||
-        msg.includes('Malformed')
-      ) {
-        statusCode = 400;
-      } else if (msg.includes('Authentication failed')) {
-        statusCode = 401;
-      }
-    }
-
-    if (!res.headersSent) {
-      res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
-    }
-    if (!res.writableEnded) {
-      res.end(JSON.stringify({ error: err.message, statusCode }));
-    }
-  }
-}
-
-export function createStudioServer() {
-  const srv = http.createServer(handleRequest);
-  srv.on('listening', () => {
-    const addr = srv.address();
-    if (addr && typeof addr === 'object' && addr.port) {
-      activeServerPort = addr.port;
-    }
-  });
-  srv.on('close', () => {
-    activeServerPort = null;
-  });
-  return srv;
-}
-
-export function startServer(options = {}) {
-  const config = getConfig();
-  const requestedPort =
-    typeof options === 'number'
-      ? options
-      : options.port !== undefined
-      ? options.port
-      : config.port;
-  const requestedHost =
-    (typeof options === 'object' && options !== null && options.host) || config.host || '127.0.0.1';
-
-  const srv = createStudioServer();
-  return new Promise((resolve, reject) => {
-    const onError = (err) => {
-      console.error(`[agy-paint] Server error on port ${requestedPort}:`, err);
-      reject(err);
-    };
-    srv.once('error', onError);
-    srv.listen(requestedPort, requestedHost, () => {
-      srv.removeListener('error', onError);
-      const addr = srv.address();
-      const boundPort = addr && typeof addr === 'object' ? addr.port : requestedPort;
-      activeServerPort = boundPort;
-      srv.port = boundPort;
-      srv.host = requestedHost;
-      srv.server = srv;
-      console.log(`[agy-paint sidecar] Listening on http://${requestedHost}:${boundPort}`);
-      resolve(srv);
     });
-  });
+    return server;
+  };
+
+  return app;
 }
 
-// Server lifecycle manager
-class ServerManager {
-  constructor() {
-    this.server = null;
-    this.currentPort = null;
-    this.currentHost = '127.0.0.1';
-  }
-
-  start() {
-    const config = getConfig();
-    this.currentPort = config.port;
-    this.currentHost = config.host;
-
-    this.server = createStudioServer();
-
-    this.server.on('error', (err) => {
-      console.error(`[agy-paint] Server error on port ${this.currentPort}:`, err);
-      if (err.code === 'EADDRINUSE') {
-        console.error(
-          `[agy-paint] FATAL: Port ${this.currentPort} is already in use by another process.`
-        );
-      }
-      process.exit(1);
-    });
-
-    this.server.listen(this.currentPort, this.currentHost, () => {
-      const addr = this.server.address();
-      if (addr && typeof addr === 'object' && addr.port) {
-        this.currentPort = addr.port;
-      }
-      console.log(
-        `[agy-paint sidecar] Listening on http://${this.currentHost}:${this.currentPort}`
-      );
-    });
-
-    return this.server;
-  }
-
-  stop(callback) {
-    if (this.server) {
-      const srv = this.server;
-      this.server = null;
-      activeServerPort = null;
-      srv.close(callback);
-    } else if (callback) {
-      callback();
-    }
-  }
-}
-
-export const manager = new ServerManager();
-
-function gracefulShutdown(signal) {
-  console.log(`[agy-paint sidecar] Received ${signal}, shutting down gracefully...`);
-  manager.stop((err) => {
-    if (err) {
-      console.error(`[agy-paint sidecar] Error during shutdown:`, err);
-      process.exit(1);
-    }
-    process.exit(0);
-  });
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// Only auto-listen when server/index.mjs is the entrypoint or imported by sidecar runners
 const isDirectRun =
-  Boolean(process.argv[1]) &&
-  (process.argv[1].endsWith(path.join('server', 'index.mjs')) ||
-    process.argv[1].endsWith('run-sidecar.mjs') ||
-    process.argv[1].endsWith(path.join('sidecars', 'studio', 'run.mjs')));
+  Boolean(process.argv[1]) && process.argv[1].endsWith(path.join('server', 'index.mjs'));
 
-if (isDirectRun && process.env.VITE_DEV_MODE !== '1' && process.env.NODE_ENV !== 'test') {
-  manager.start();
+if (isDirectRun && process.env.NODE_ENV !== 'test') {
+  const app = createSidecarApp();
+  await app.run();
 }
