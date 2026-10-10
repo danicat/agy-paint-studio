@@ -355,8 +355,10 @@ export function createSidecarApp() {
         500
       );
     }
-    console.log('[paint-studio] GET / (index.html)');
-    return fs.readFileSync(indexPath, 'utf-8');
+    return new Response(fs.readFileSync(indexPath, 'utf-8'), {
+      contentType: 'text/html; charset=utf-8',
+      headers: { 'Cache-Control': 'no-store' },
+    });
   };
 
   const serveAppJs = () => {
@@ -367,8 +369,10 @@ export function createSidecarApp() {
         500
       );
     }
-    console.log('[paint-studio] GET /app.js');
-    return fs.readFileSync(jsPath, 'utf-8');
+    return new Response(fs.readFileSync(jsPath, 'utf-8'), {
+      contentType: 'application/javascript; charset=utf-8',
+      headers: { 'Cache-Control': 'no-store' },
+    });
   };
 
   const serveStylesCss = () => {
@@ -379,9 +383,9 @@ export function createSidecarApp() {
         500
       );
     }
-    console.log('[paint-studio] GET /styles.css');
     return new Response(fs.readFileSync(cssPath, 'utf-8'), {
       contentType: 'text/css; charset=utf-8',
+      headers: { 'Cache-Control': 'no-store' },
     });
   };
 
@@ -799,6 +803,113 @@ export function createSidecarApp() {
     'POST'
   );
 
+  // 8b. GET /api/fs/open
+  app.api(
+    '/api/fs/open',
+    withErrorHandling((data) => {
+      const rawFile = data.file || data.filePath || data.path;
+      if (!rawFile || typeof rawFile !== 'string' || !rawFile.trim()) {
+        throw createHttpError('Missing or empty "file" query parameter.', 400);
+      }
+      if (rawFile.includes('\0')) {
+        throw createHttpError('Invalid file path: null byte detected.', 400);
+      }
+
+      const homeDir = os.homedir();
+      const expandTilde = (p) => {
+        const trimmed = p.trim();
+        if (trimmed === '~') return homeDir;
+        if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+          return path.join(homeDir, trimmed.slice(2));
+        }
+        if (trimmed.startsWith('file://')) {
+          return fileURLToPath(trimmed);
+        }
+        return trimmed;
+      };
+
+      const targetPath = path.resolve(expandTilde(rawFile));
+      const ext = path.extname(targetPath).toLowerCase();
+      if (!ALLOWED_ARTIFACT_EXTENSIONS.has(ext)) {
+        throw createHttpError(
+          `Unsupported file extension "${ext}". Allowed extensions: ${Array.from(ALLOWED_ARTIFACT_EXTENSIONS).join(', ')}.`,
+          400
+        );
+      }
+
+      const normalizedSegments = targetPath.split(path.sep);
+      if (normalizedSegments.includes('.system_generated')) {
+        throw createHttpError(
+          'Access denied: reading from ".system_generated" is forbidden.',
+          400
+        );
+      }
+
+      const allowedRoots = [
+        path.resolve(homeDir),
+        path.resolve(os.tmpdir()),
+        path.resolve(process.cwd()),
+      ];
+      try {
+        allowedRoots.push(fs.realpathSync(os.tmpdir()));
+      } catch {
+        // ignore if tmpdir realpath fails
+      }
+      if (process.env.WORKSPACE_ROOT) {
+        allowedRoots.push(path.resolve(process.env.WORKSPACE_ROOT));
+      }
+      if (process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) {
+        allowedRoots.push(path.resolve(process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR));
+      }
+      try {
+        allowedRoots.push(path.resolve(getAppDataDir()));
+      } catch {
+        // ignore if appDataDir is not configured
+      }
+
+      const isWithinAllowedRoot = (candidate) =>
+        allowedRoots.some(
+          (root) => candidate === root || candidate.startsWith(root + path.sep)
+        );
+
+      if (!isWithinAllowedRoot(targetPath)) {
+        throw createHttpError(
+          `Access denied: file path "${targetPath}" must be within your home, workspace, or temp directory.`,
+          403
+        );
+      }
+
+      if (!fs.existsSync(targetPath)) {
+        throw createHttpError(`File not found: "${targetPath}"`, 404);
+      }
+
+      const realTargetPath = fs.realpathSync(targetPath);
+      if (!isWithinAllowedRoot(realTargetPath)) {
+        throw createHttpError(
+          `Access denied: resolved file path "${realTargetPath}" is outside allowed user directories.`,
+          403
+        );
+      }
+
+      const stat = fs.statSync(realTargetPath);
+      if (!stat.isFile()) {
+        throw createHttpError(`Path is not a regular file: "${targetPath}"`, 400);
+      }
+
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      const fileData = fs.readFileSync(realTargetPath);
+      return new Response(fileData, {
+        contentType,
+        status: 200,
+        headers: {
+          'Cache-Control': 'no-cache',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      });
+    }),
+    'GET'
+  );
+
   // 9. POST /api/ai/refine
   app.api(
     '/api/ai/refine',
@@ -1006,6 +1117,8 @@ export function createSidecarApp() {
     const origListeners = server.listeners('request');
     server.removeAllListeners('request');
     server.on('request', (req, res) => {
+      const safeUrl = (req.url || '/').replace(/([?&]token=)[^&]+/gi, '$1[REDACTED]');
+      console.log(`[paint-studio HTTP] ${req.method} ${safeUrl}`);
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Sidecar-Token');

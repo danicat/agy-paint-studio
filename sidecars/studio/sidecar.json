@@ -11,7 +11,8 @@
       {
         "path": "/",
         "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
-        "title": "Paint Studio"
+        "title": "Paint Studio",
+        "file_extensions": [".psd"]
       }
     ]
   },

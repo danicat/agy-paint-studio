@@ -21,11 +21,65 @@ import { Toolbar } from './ui/Toolbar.ts';
 import { PropertyBar } from './ui/PropertyBar.ts';
 import { LayerPanel } from './ui/LayerPanel.ts';
 import { NotificationManager } from './ui/Notification.ts';
+import { parsePsd } from './utils/psd.ts';
 import {
   getStudioMode,
   isInlineEmbed,
+  sidecarFetch,
   type StudioMode
 } from './utils/api.ts';
+
+async function loadInitialFileParam(engine: CanvasEngine): Promise<void> {
+  const fileParam = new URLSearchParams(window.location.search).get('file')?.trim();
+  if (!fileParam) {
+    return;
+  }
+
+  const displayName = fileParam.split(/[\\/]/).pop() || fileParam;
+  NotificationManager.info(`Opening "${displayName}"...`);
+
+  const res = await sidecarFetch(`/api/fs/open?file=${encodeURIComponent(fileParam)}`);
+  if (!res.ok) {
+    const bodyText = await res.text();
+    throw new Error(
+      `Failed to open "${displayName}" (HTTP ${res.status}): ${bodyText || res.statusText}`
+    );
+  }
+
+  if (fileParam.toLowerCase().endsWith('.psd')) {
+    const buffer = await res.arrayBuffer();
+    parsePsd(buffer, engine);
+    engine.fitToViewport();
+    NotificationManager.success(`Opened PSD "${displayName}" with layers`);
+    return;
+  }
+
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error(`Failed to decode image "${displayName}".`));
+      image.src = objectUrl;
+    });
+
+    engine.resizeDocument(img.naturalWidth, img.naturalHeight);
+    engine.initDefaultDocument();
+    const active = engine.getActiveLayer();
+    if (active) {
+      active.ctx.drawImage(img, 0, 0);
+      engine.render();
+      engine.commitHistory();
+    }
+    engine.fitToViewport();
+    NotificationManager.success(
+      `Opened "${displayName}" (${img.naturalWidth}×${img.naturalHeight})`
+    );
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
 function applyStudioModeClasses(mode: StudioMode): void {
   const modeClass = mode === 'preview' ? 'studio-mode-preview' : 'studio-mode-full';
@@ -98,6 +152,12 @@ function initStudio(): void {
       engine.fitToViewport();
     });
 
+    // If opened as a custom file viewer (?file=/path/to/file.psd), load the file onto the canvas
+    void loadInitialFileParam(engine).catch((err) => {
+      console.error('[Paint Studio] Failed to load ?file= parameter:', err);
+      NotificationManager.fatal('Failed to Open File', err);
+    });
+
     // Dynamically switch between compact preview and full studio layout when Aux Pane is resized/maximized
     let currentMode = mode;
     window.addEventListener('resize', () => {
@@ -113,7 +173,7 @@ function initStudio(): void {
 
     console.log(`[Paint Studio] Initialized in "${mode}" mode`);
   } catch (err: any) {
-    console.error('[Paint Studio] Initialization error:', err);
+    console.error('[Paint Studio] Initialisation error:', err);
     NotificationManager.fatal('Application Initialization Failed', err);
   }
 }

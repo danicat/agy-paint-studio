@@ -35,17 +35,19 @@ Open Paint Studio inline in the chat or in the right-hand side pane:
 
 - Type `/paint-studio` in chat to get both an **inline canvas** in the conversation and a **Paint Studio** pill to dock it in the side pane.
 - Open the **⋮** menu in the top-right corner of a conversation and choose **Extensions → Paint Studio** to toggle the side pane directly.
+- Click any `.psd` file link in chat or the file explorer to open it directly in Paint Studio with all its layers intact.
 
 Draw on the canvas and click **Send** to post the image into the active conversation.
 
 ---
 
-## Inline, side pane, and full mode
+## Inline, side pane, `.psd` viewer, and full mode
 
-Paint Studio runs in three views served by its background sidecar:
+Paint Studio runs in four views served by its background sidecar:
 
 - **Inline chat mode**: A 480px card embedded directly in the chat stream for quick sketches and annotations.
 - **Side-pane mode**: A dockable panel in Antigravity's auxiliary side pane that automatically expands to the full workspace layout when widened or maximized.
+- **Custom `.psd` file viewer** (`file_extensions: [".psd"]`): Clicking any `.psd` file in Antigravity opens it in Paint Studio with its full layer stack.
 - **Full mode** (`?mode=full`): A full browser workspace with menu bars and a layer panel for managing multiple layers, blend modes, and opacity. Click **Full Mode** in the header to open it in a browser tab.
 
 ![Full mode workspace in browser](assets/screenshot-full.png)
