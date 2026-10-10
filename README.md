@@ -1,47 +1,73 @@
 # Paint Studio (`agy-paint-studio`)
 
-Paint Studio is a multi-layer drawing, `.psd` editing, and Gemini image refinement UI extension for [Google Antigravity](https://antigravity.google) that runs in the side pane, inline in chat, and as a native viewer for `.psd` and raster image files.
+Paint Studio is a multi-layer drawing, `.psd` editing, and Gemini image refinement UI extension plugin for [Google Antigravity](https://antigravity.google) that runs in the side pane, inline in chat, and as a custom viewer for `.psd` and raster image files.
 
 ![Paint Studio running in the Antigravity side pane](assets/screenshot-preview.png)
 
 ## Quickstart
 
-### 1. Install the UI extension plugin
+Paint Studio ships with prebuilt UI assets (`dist/`) and uses Antigravity's bundled Node.js runtime and `sidecar_sdk`. Installing the plugin requires no `npm install` or build step.
 
-Clone or link the repository into your Antigravity plugins directory (`~/.gemini/config/plugins/` on macOS and Linux, or `%USERPROFILE%\.gemini\config\plugins\` on Windows) and build the frontend bundle:
+### 1. Install the plugin
 
-```bash
-git clone https://github.com/danicat/agy-paint-studio.git ~/.gemini/config/plugins/agy-paint-studio
-cd ~/.gemini/config/plugins/agy-paint-studio
-npm install
-npm run build
-```
+Choose the installation method for your Antigravity surface:
 
-If you already cloned the repository elsewhere, symlink it instead:
+#### Antigravity CLI (`agy`)
+
+Install directly from GitHub in your shell:
 
 ```bash
-ln -s /path/to/agy-paint-studio ~/.gemini/config/plugins/agy-paint-studio
+agy plugin install https://github.com/danicat/agy-paint-studio
 ```
 
-### 2. Enable the plugin in Antigravity
+Or inside an interactive `agy` TUI session using `/plugin`:
 
-1. Restart Antigravity if this is a newly created plugin directory.
-2. Open **Customizations** in the left sidebar and select the **Installed** tab.
-3. Find **Paint Studio** (`agy-paint-studio`) and enable it. Antigravity starts and supervises the `studio` sidecar process automatically.
+```text
+/plugin install https://github.com/danicat/agy-paint-studio
+```
+
+#### Antigravity 2.0 and Antigravity IDE
+
+Place the plugin directory in one of Antigravity's plugin discovery roots:
+
+- **Global (all workspaces)**:
+  - **macOS / Linux**: `~/.gemini/config/plugins/agy-paint-studio`
+  - **Windows**: `%USERPROFILE%\.gemini\config\plugins\agy-paint-studio`
+
+  ```bash
+  git clone https://github.com/danicat/agy-paint-studio.git ~/.gemini/config/plugins/agy-paint-studio
+  ```
+
+- **Workspace (project-scoped)**:
+  Place the plugin at `.agents/plugins/agy-paint-studio` in your repository root, or declare its parent directory in `.agents/plugins.json` (workspace) or `~/.gemini/config/plugins.json` (global):
+
+  ```json
+  {
+    "entries": [
+      { "path": "/path/to/plugins" }
+    ]
+  }
+  ```
+
+### 2. Enable the plugin
+
+1. If you created a new plugin directory manually on disk, restart Antigravity so it discovers the directory.
+2. In **Antigravity 2.0** or **Antigravity IDE**, open **Customizations** in the left sidebar, select the **Installed** tab, and verify **Paint Studio** (`agy-paint-studio`) is enabled. (Or run `/plugin` in chat / `agy plugin enable agy-paint-studio` in the CLI.)
+3. Once enabled, Antigravity automatically starts and supervises the `agy-paint-studio/studio` sidecar process.
 
 ### 3. Open Paint Studio
 
-Use any of the three entrypoints inside a conversation:
+Open the studio inside any conversation using any of the three entrypoints:
 
-- **Side pane**: Click the **⋮** (three-dot) menu in the top-right corner of any conversation and select **Extensions → Paint Studio**.
-- **File viewer**: Click any `.psd`, `.png`, `.jpg`, `.jpeg`, or `.webp` file in chat or the file explorer to open it directly in Paint Studio.
-- **Slash command**: Type `/paint-studio` in chat to render both an inline `<agent-embed>` canvas and a clickable `[Paint Studio](sidecar://agy-paint-studio/studio/)` side-pane pill.
+- **Side-pane UI extension**: Click the **⋮** (three-dot) menu in the top-right corner of a conversation and select **Extensions → Paint Studio**.
+- **Custom `.psd` and image viewer**: Click any `.psd`, `.png`, `.jpg`, `.jpeg`, or `.webp` file in chat or the file explorer to open it directly in the Paint Studio side pane.
+- **Slash command**: Type `/paint-studio` in chat to render an inline `<agent-embed>` canvas and a clickable `[Paint Studio](sidecar://agy-paint-studio/studio/)` side-pane pill.
 
-Draw on the canvas and click **Send** to save the composite PNG and layered `.psd` to the active conversation and post the image into chat.
+Draw on the canvas and click **Send** to save both the flattened `PNG` and the multi-layer `.psd` into the active conversation and post the image into chat.
 
 ### 4. Configure Gemini image refinement (optional)
 
-AI refinement uses Vertex AI with Google Cloud Application Default Credentials (ADC):
+AI refinement calls `gemini-3.1-flash-lite-image` on Vertex AI using Google Cloud Application Default Credentials (ADC):
 
 ```bash
 gcloud auth application-default login
@@ -73,8 +99,8 @@ A single background `SidecarApp` server powers four views:
 | **Send** | — | Saves the flattened `PNG` and layered `.psd` into `<appDataDir>/brain/<conversation-id>/` and calls `window.sidecar.agent.sendMessage()`. |
 | **Save Project** | `⌘S` | Saves a multi-layer `.psd` file to `Downloads`, `Desktop`, `Workspace`, `Session`, or a custom path. |
 | **Export Image** | `⇧⌘E` | Exports a flattened `PNG`, `JPEG`, or `WebP` file to disk or triggers a browser download. |
-| **Open Local File** | `⌘O` | Imports a local `.psd`, `PNG`, `JPEG`, or `WebP` file from disk as a canvas or new layer. |
-| **Open Session Artifact** | — | Browses images and `.psd` files from the active Antigravity session to open or insert as a layer. |
+| **Open File** | `⌘O` | Opens a local `.psd`, `PNG`, `JPEG`, or `WebP` file from disk as a canvas or new layer. |
+| **Open Artifact** | — | Browses images and `.psd` files from the active Antigravity session to open or insert as a layer. |
 
 ### AI refinement presets
 
@@ -100,7 +126,7 @@ Type custom instructions in the prompt field and press `Enter` or click **Refine
 | `V` | Select, move, cut, copy, or paste |
 | `B` | Smooth brush |
 | `P` | Pixel pencil |
-| `E` | Eraser |
+| `E` | Eraser (defaults to 20px width; shows live cursor ring) |
 | `U` / `O` | Rectangle / Ellipse |
 | `L` / `A` | Line / Arrow |
 | `T` | Text |
@@ -108,7 +134,7 @@ Type custom instructions in the prompt field and press `Enter` or click **Refine
 | `I` | Eyedropper |
 | `H` / `Space` | Pan canvas (scroll to zoom) |
 | `X` | Swap foreground and background colours |
-| `[` / `]` | Decrease / increase tool size |
+| `[` / `]` | Decrease / increase active tool size |
 | `⌘Z` / `⇧⌘Z` | Undo / Redo |
 | `⌘0` / `⌘9` | Zoom 100% / Fit canvas to viewport |
 | `⌫` | Clear active selection or layer |
@@ -117,13 +143,16 @@ Type custom instructions in the prompt field and press `Enter` or click **Refine
 
 ## Development and testing
 
-Build the frontend bundle, run TypeScript typechecking, and run the integration test suite:
+Only contributors modifying TypeScript source (`src/`) or server code (`server/`) need to install dev dependencies and rebuild `dist/`:
 
 ```bash
+npm install
 npm run build
 npm run typecheck
 npm test
 ```
+
+`npm run build` compiles the frontend (`dist/index.html`, `dist/app.js`, `dist/styles.css`) and bundles the sidecar server (`dist/server.mjs`) so the committed `dist/` folder runs with zero external `node_modules`.
 
 ### Debugging the sidecar
 
@@ -134,7 +163,7 @@ Antigravity writes sidecar `stdout` and `stderr` to:
 ```
 
 - **Frontend changes** (`src/`): Run `npm run build`, then close and reopen the Paint Studio panel. The backend re-reads `dist/index.html`, `dist/app.js`, and `dist/styles.css` from disk on each request with `Cache-Control: no-store`.
-- **Backend changes** (`server/` or `sidecars/studio/`): Toggle **Paint Studio** off and back on in **Customizations → Installed** (or touch `sidecars/studio/sidecar.json`) to restart the sidecar process.
+- **Backend changes** (`server/` or `sidecars/studio/`): Run `npm run build`, then disable and re-enable **Paint Studio** in **Customizations → Installed** (or via `/plugin`) to restart the sidecar process.
 
 ---
 
@@ -144,21 +173,22 @@ Antigravity writes sidecar `stdout` and `stderr` to:
 agy-paint-studio/
 ├── plugin.json                        # Plugin identity, display name, version, and logo
 ├── assets/
-│   └── logo.svg                       # Square SVG icon shown in Customizations and .psd file tabs
+│   └── logo.svg                       # Square SVG icon shown in Customizations and file viewer tabs
 ├── sidecars/
 │   └── studio/
 │       ├── sidecar.json               # Sidecar process config, AUX_PANE entrypoint, and file_extensions
 │       ├── package.json               # Marks the sidecar directory as an ES module
-│       └── run.mjs                    # Sidecar entrypoint
+│       └── run.mjs                    # Sidecar entrypoint (loads pre-bundled dist/server.mjs)
 ├── skills/
 │   └── paint-studio/
-│       └── SKILL.md                   # /paint-studio runbook for inline + side-pane launch
+│       └── SKILL.md                   # /paint-studio skill for inline + side-pane launch
+├── dist/                              # Prebuilt frontend assets and self-contained server bundle
 ├── server/
 │   ├── index.mjs                      # SidecarApp routes, session/filesystem I/O, and /api/template
 │   └── services/
 │       └── gemini.mjs                 # Vertex AI image refinement service
 ├── src/                               # TypeScript canvas engine, PSD parser, and UI components
-└── tests/                             # Node test runner suites (flood fill, PSD, Gemini, HTTP endpoints)
+└── tests/                             # Node test runner suites (flood fill, eraser, PSD, Gemini, endpoints)
 ```
 
 ### Sidecar API routes
