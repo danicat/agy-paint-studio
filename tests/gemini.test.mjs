@@ -167,4 +167,69 @@ describe('GeminiRefineService & STYLE_PRESETS Validation', () => {
       }
     }
   });
+
+  test('Gemini API Key initialization succeeds without a Google Cloud Project via GEMINI_API_KEY or apiKey option', async () => {
+    const backupProject = process.env.GOOGLE_CLOUD_PROJECT;
+    const backupGcloud = process.env.GCLOUD_PROJECT;
+    const backupGeminiKey = process.env.GEMINI_API_KEY;
+    const backupGoogleKey = process.env.GOOGLE_API_KEY;
+
+    delete process.env.GOOGLE_CLOUD_PROJECT;
+    delete process.env.GCLOUD_PROJECT;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GOOGLE_API_KEY;
+
+    try {
+      // 1. Direct apiKey option
+      const statusFromOption = await geminiModule.detectAuthStatus({ apiKey: 'test-ai-studio-key' });
+      assert.strictEqual(statusFromOption.authMode, 'api-key');
+      assert.strictEqual(statusFromOption.hasApiKey, true);
+      assert.strictEqual(statusFromOption.hasGoogleCloudProject, false);
+
+      const clientFromOption = await getGoogleGenAIClient({ apiKey: 'test-ai-studio-key' });
+      assert.ok(clientFromOption, 'GoogleGenAI client should be created from apiKey option');
+      assert.strictEqual(clientFromOption.vertexai, false);
+
+      // 2. GEMINI_API_KEY environment variable (including when config passes apiKey: '')
+      process.env.GEMINI_API_KEY = 'env-gemini-api-key';
+      const serviceFromEnv = new GeminiRefineService({ apiKey: '' });
+      const statusFromEnv = await serviceFromEnv.getAuthStatus();
+      assert.strictEqual(statusFromEnv.authMode, 'api-key');
+      assert.strictEqual(statusFromEnv.hasApiKey, true);
+
+      const clientFromEnv = await serviceFromEnv.getClient();
+      assert.ok(clientFromEnv, 'GoogleGenAI client should be created from GEMINI_API_KEY env');
+      assert.strictEqual(clientFromEnv.vertexai, false);
+
+      // 3. GOOGLE_API_KEY environment variable
+      delete process.env.GEMINI_API_KEY;
+      process.env.GOOGLE_API_KEY = 'env-google-api-key';
+      const serviceFromGoogleKey = new GeminiRefineService();
+      const statusFromGoogleKey = await serviceFromGoogleKey.getAuthStatus();
+      assert.strictEqual(statusFromGoogleKey.authMode, 'api-key');
+      assert.strictEqual(statusFromGoogleKey.hasApiKey, true);
+
+      // 4. authMode: 'api-key' fails fast when no API key is configured
+      delete process.env.GOOGLE_API_KEY;
+      await assert.rejects(
+        async () => {
+          await getGoogleGenAIClient({ authMode: 'api-key' });
+        },
+        /Authentication failed: Gemini API key is required/
+      );
+    } finally {
+      if (backupProject !== undefined) process.env.GOOGLE_CLOUD_PROJECT = backupProject;
+      if (backupGcloud !== undefined) process.env.GCLOUD_PROJECT = backupGcloud;
+      if (backupGeminiKey !== undefined) {
+        process.env.GEMINI_API_KEY = backupGeminiKey;
+      } else {
+        delete process.env.GEMINI_API_KEY;
+      }
+      if (backupGoogleKey !== undefined) {
+        process.env.GOOGLE_API_KEY = backupGoogleKey;
+      } else {
+        delete process.env.GOOGLE_API_KEY;
+      }
+    }
+  });
 });

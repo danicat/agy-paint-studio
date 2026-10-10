@@ -326,6 +326,7 @@ function scanConversationMedia(sessionDir) {
 
 export function getConfig() {
   return {
+    apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '',
     googleCloudProject: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || '',
     location: process.env.GOOGLE_CLOUD_LOCATION || 'global',
     model: process.env.MODEL || 'gemini-3.1-flash-lite-image',

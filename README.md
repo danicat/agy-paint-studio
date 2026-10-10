@@ -67,8 +67,14 @@ Draw on the canvas and click **Send** to save both the flattened `PNG` and the m
 
 ### 4. Configure Gemini image refinement (optional)
 
-AI refinement calls `gemini-3.1-flash-lite-image` on Vertex AI using Google Cloud Application Default Credentials (ADC):
+AI refinement calls `gemini-3.1-flash-lite-image` using either a **Gemini API Key** (from Google AI Studio) or **Google Cloud Application Default Credentials (ADC)**:
 
+**Option A: Gemini API Key (Google AI Studio)**
+```bash
+export GEMINI_API_KEY="your-gemini-api-key"
+```
+
+**Option B: Google Cloud Vertex AI (ADC)**
 ```bash
 gcloud auth application-default login
 export GOOGLE_CLOUD_PROJECT="your-gcp-project-id"

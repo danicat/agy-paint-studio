@@ -194,15 +194,26 @@ function extractBase64Payload(image) {
 }
 
 /**
- * Detects Vertex AI Application Default Credentials (ADC) status and project resolution.
+ * Detects Gemini API Key or Vertex AI Application Default Credentials (ADC) status.
  *
  * @param {object} [options={}]
- * @returns {Promise<{ hasGoogleCloudProject: boolean, googleCloudProject: string, googleCloudLocation: string, authMode: string }>}
+ * @returns {Promise<{ hasApiKey: boolean, hasGoogleCloudProject: boolean, googleCloudProject: string, googleCloudLocation: string, authMode: string }>}
  */
 export async function detectAuthStatus(options = {}) {
   const service = new GeminiRefineService(options);
+  const apiKey = service.resolveApiKey();
+  if (apiKey) {
+    return {
+      hasApiKey: true,
+      hasGoogleCloudProject: false,
+      googleCloudProject: '',
+      googleCloudLocation: service.location,
+      authMode: 'api-key',
+    };
+  }
   const project = await service.resolveProject();
   return {
+    hasApiKey: false,
     hasGoogleCloudProject: true,
     googleCloudProject: project,
     googleCloudLocation: service.location,
@@ -211,8 +222,8 @@ export async function detectAuthStatus(options = {}) {
 }
 
 /**
- * Instantiates a Vertex AI ADC-authenticated GoogleGenAI client.
- * Fails fast if Vertex AI ADC or Google Cloud Project cannot be resolved.
+ * Instantiates a GoogleGenAI client authenticated via Gemini API Key or Vertex AI ADC.
+ * Fails fast if neither an API key nor Vertex AI ADC / Google Cloud Project can be resolved.
  *
  * @param {object} [options={}]
  * @param {object} [config={}]
@@ -224,10 +235,15 @@ export async function getGoogleGenAIClient(options = {}, config = {}) {
 }
 
 /**
- * Service class for Gemini Nano Banana AI Image Refinement using Vertex AI ADC.
+ * Service class for Gemini AI Image Refinement using a Gemini API Key or Vertex AI ADC.
  */
 export class GeminiRefineService {
   constructor(options = {}) {
+    this.apiKey =
+      typeof options.apiKey === 'string' && options.apiKey.trim()
+        ? options.apiKey.trim()
+        : null;
+    this.authMode = options.authMode || null;
     this.project =
       options.project ||
       options.googleCloudProject ||
@@ -241,6 +257,30 @@ export class GeminiRefineService {
     this.model = options.model || process.env.MODEL || DEFAULT_MODEL;
     this.auth = options.auth || null;
     this.client = options.client || null;
+  }
+
+  /**
+   * Resolves a Gemini API Key via instance configuration or environment (GEMINI_API_KEY / GOOGLE_API_KEY).
+   * Returns an empty string when authMode is explicitly set to 'vertex-adc' or no key is configured.
+   *
+   * @returns {string}
+   */
+  resolveApiKey() {
+    if (this.authMode === 'vertex-adc') {
+      return '';
+    }
+    const rawKey =
+      this.apiKey ||
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      '';
+    const apiKey = typeof rawKey === 'string' ? rawKey.trim() : '';
+    if (this.authMode === 'api-key' && !apiKey) {
+      throw new Error(
+        'Authentication failed: Gemini API key is required when authMode is "api-key" (set GEMINI_API_KEY or GOOGLE_API_KEY).'
+      );
+    }
+    return apiKey;
   }
 
   /**
@@ -276,8 +316,8 @@ export class GeminiRefineService {
         ? ` Underlying error: ${authError.message}`
         : ' No project ID was returned by Application Default Credentials.';
       throw new Error(
-        'Vertex AI authentication failed: Vertex AI Application Default Credentials (ADC) and a Google Cloud Project ' +
-        '(set via GOOGLE_CLOUD_PROJECT or `gcloud config set project <ID>`) are required.' +
+        'Authentication failed: Set GEMINI_API_KEY (Google AI Studio) or configure Vertex AI Application Default Credentials (ADC) with a Google Cloud Project ' +
+        '(set via GOOGLE_CLOUD_PROJECT or `gcloud config set project <ID>`).' +
         errorDetail
       );
     }
@@ -287,12 +327,19 @@ export class GeminiRefineService {
   }
 
   /**
-   * Returns a cached Vertex AI GoogleGenAI client instance, initializing it on first use.
+   * Returns a cached GoogleGenAI client instance (API Key or Vertex AI ADC), initializing it on first use.
    *
    * @returns {Promise<GoogleGenAI>}
    */
   async getClient() {
     if (this.client) {
+      return this.client;
+    }
+
+    const apiKey = this.resolveApiKey();
+    if (apiKey) {
+      this.apiKey = apiKey;
+      this.client = new GoogleGenAI({ apiKey });
       return this.client;
     }
 
@@ -312,8 +359,7 @@ export class GeminiRefineService {
   }
 
   /**
-   * Refines a canvas image using Gemini image models over Vertex AI ADC,
-   * preserving exact target dimensions with sharp.
+   * Refines a canvas image using Gemini image models over Gemini API Key or Vertex AI ADC.
    *
    * @param {object} params
    * @param {string} params.image Base64 string or data URL of the canvas image
@@ -514,6 +560,8 @@ export class GeminiRefineService {
 
   async getAuthStatus() {
     return detectAuthStatus({
+      apiKey: this.apiKey,
+      authMode: this.authMode,
       project: this.project,
       location: this.location,
       model: this.model,
