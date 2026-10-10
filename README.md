@@ -1,27 +1,47 @@
 # Paint Studio (`agy-paint-studio`)
 
-Paint Studio is a drawing and image editing UI extension for Google Antigravity. Use it in the side pane next to your conversation to sketch diagrams, annotate screenshots, edit multi-layer `.psd` files, and refine drawings with Gemini.
+Paint Studio is a multi-layer drawing, `.psd` editing, and Gemini image refinement UI extension for [Google Antigravity](https://antigravity.google) that runs in the side pane, inline in chat, and as a native viewer for `.psd` and raster image files.
 
-![Side-pane preview window in Antigravity](assets/screenshot-preview.png)
+![Paint Studio running in the Antigravity side pane](assets/screenshot-preview.png)
 
 ## Quickstart
 
-### 1. Install the plugin
+### 1. Install the UI extension plugin
 
-Link the repository into your Antigravity plugins directory and build the frontend:
+Clone or link the repository into your Antigravity plugins directory (`~/.gemini/config/plugins/` on macOS and Linux, or `%USERPROFILE%\.gemini\config\plugins\` on Windows) and build the frontend bundle:
 
 ```bash
-ln -s /path/to/agy-paint-studio ~/.gemini/config/plugins/agy-paint-studio
-cd /path/to/agy-paint-studio
+git clone https://github.com/danicat/agy-paint-studio.git ~/.gemini/config/plugins/agy-paint-studio
+cd ~/.gemini/config/plugins/agy-paint-studio
 npm install
 npm run build
 ```
 
-Enable **Paint Studio** in **Customizations → Installed**.
+If you already cloned the repository elsewhere, symlink it instead:
 
-### 2. Enable AI refinement (optional)
+```bash
+ln -s /path/to/agy-paint-studio ~/.gemini/config/plugins/agy-paint-studio
+```
 
-AI refinement uses Google Cloud Application Default Credentials (ADC):
+### 2. Enable the plugin in Antigravity
+
+1. Restart Antigravity if this is a newly created plugin directory.
+2. Open **Customizations** in the left sidebar and select the **Installed** tab.
+3. Find **Paint Studio** (`agy-paint-studio`) and enable it. Antigravity starts and supervises the `studio` sidecar process automatically.
+
+### 3. Open Paint Studio
+
+Use any of the three entrypoints inside a conversation:
+
+- **Side pane**: Click the **⋮** (three-dot) menu in the top-right corner of any conversation and select **Extensions → Paint Studio**.
+- **File viewer**: Click any `.psd`, `.png`, `.jpg`, `.jpeg`, or `.webp` file in chat or the file explorer to open it directly in Paint Studio.
+- **Slash command**: Type `/paint-studio` in chat to render both an inline `<agent-embed>` canvas and a clickable `[Paint Studio](sidecar://agy-paint-studio/studio/)` side-pane pill.
+
+Draw on the canvas and click **Send** to save the composite PNG and layered `.psd` to the active conversation and post the image into chat.
+
+### 4. Configure Gemini image refinement (optional)
+
+AI refinement uses Vertex AI with Google Cloud Application Default Credentials (ADC):
 
 ```bash
 gcloud auth application-default login
@@ -29,49 +49,49 @@ export GOOGLE_CLOUD_PROJECT="your-gcp-project-id"
 export GOOGLE_CLOUD_LOCATION="global"
 ```
 
-### 3. Open Paint Studio
-
-Open Paint Studio inline in the chat or in the right-hand side pane:
-
-- Type `/paint-studio` in chat to get both an **inline canvas** in the conversation and a **Paint Studio** pill to dock it in the side pane.
-- Open the **⋮** menu in the top-right corner of a conversation and choose **Extensions → Paint Studio** to toggle the side pane directly.
-- Click any `.psd`, `.png`, `.jpg`, `.jpeg`, or `.webp` file link in chat or the file explorer to open it directly in Paint Studio.
-
-Draw on the canvas and click **Send** to post the image into the active conversation.
-
 ---
 
-## Inline, side pane, file viewer, and full mode
+## Usage and workflows
 
-Paint Studio runs in four views served by its background sidecar:
+### Four ways to use Paint Studio
 
-- **Inline chat mode**: A 480px card embedded directly in the chat stream for quick sketches and annotations.
-- **Side-pane mode**: A dockable panel in Antigravity's auxiliary side pane that automatically expands to the full workspace layout when widened or maximized.
-- **Custom image & `.psd` file viewer** (`file_extensions: [".psd", ".png", ".jpg", ".jpeg", ".webp"]`): Clicking any supported image or `.psd` file in Antigravity opens it in Paint Studio ready for editing or annotation.
-- **Full mode** (`?mode=full`): A full browser workspace with menu bars and a layer panel for managing multiple layers, blend modes, and opacity. Click **Full Mode** in the header to open it in a browser tab.
+A single background `SidecarApp` server powers four views:
 
-![Full mode workspace in browser](assets/screenshot-full.png)
+| View | Entrypoint | Best for |
+| :--- | :--- | :--- |
+| **Side-pane UI extension** | **⋮ → Extensions → Paint Studio** or `[Paint Studio](sidecar://agy-paint-studio/studio/)` | Persistent workspace next to your conversation. Expands to full mode automatically when widened (`>= 760px`) or maximized. |
+| **Custom `.psd` & image viewer** | Click any `.psd`, `.png`, `.jpg`, `.jpeg`, or `.webp` file (`file_extensions` in `sidecar.json`) | Inspecting and editing multi-layer `.psd` files or annotating screenshots in place. |
+| **Inline chat canvas** | `/paint-studio` (`<agent-embed>`) | Quick 480px sketches and visual prompts directly inside the chat stream. |
+| **Full browser workspace** | Click **Full Mode** in the studio header (`?mode=full`) | Multi-layer `.psd` editing in a dedicated browser window with full menu bar and layer controls. |
 
----
+![Paint Studio in full workspace mode](assets/screenshot-full.png)
 
-## Workflows and shortcuts
+### File, artifact, and chat actions
 
-### Saving, exporting, and sending
+| Action | Shortcut | Behaviour |
+| :--- | :--- | :--- |
+| **Send** | — | Saves the flattened `PNG` and layered `.psd` into `<appDataDir>/brain/<conversation-id>/` and calls `window.sidecar.agent.sendMessage()`. |
+| **Save Project** | `⌘S` | Saves a multi-layer `.psd` file to `Downloads`, `Desktop`, `Workspace`, `Session`, or a custom path. |
+| **Export Image** | `⇧⌘E` | Exports a flattened `PNG`, `JPEG`, or `WebP` file to disk or triggers a browser download. |
+| **Open Local File** | `⌘O` | Imports a local `.psd`, `PNG`, `JPEG`, or `WebP` file from disk as a canvas or new layer. |
+| **Open Session Artifact** | — | Browses images and `.psd` files from the active Antigravity session to open or insert as a layer. |
 
-| Action | Description |
+### AI refinement presets
+
+The bottom refinement bar sends the current composite canvas to `gemini-3.1-flash-lite-image` and inserts the generated output as a new non-destructive layer above your sketch:
+
+| Preset | Behaviour |
 | :--- | :--- |
-| **Send** | Saves the current canvas as a PNG in the session folder and posts it to the active chat. |
-| **Save (`⌘S`)** | Saves a layered `.psd` file to your local filesystem (`Downloads`, `Desktop`, `Workspace`, `Session`, or custom path). |
-| **Export (`⇧⌘E`)** | Exports a flattened `PNG`, `JPEG`, or `WebP` image to your local filesystem. |
-| **Open File (`⌘O`)** | Opens a local image (`PNG`, `JPEG`, `WebP`) or layered `.psd` file from disk. |
-| **Open Artifact** | Browses images and `.psd` files from the active Antigravity session to open as a canvas or insert as a new layer. |
+| **Beautify** | Interprets rough sketches and stick figures into a polished, high-resolution illustration. |
+| **Notes** | Reads handwritten or typed redlines, arrows, and callout annotations, applies the requested edits, and removes the markup. |
+| **Watercolor** | Transforms the sketch into a wet-on-wet watercolour painting on cold-press textured paper. |
+| **Concept Art** | Renders cinematic digital concept art with dramatic lighting and atmospheric depth. |
+| **Vector** | Produces flat vector artwork with crisp geometric edges and solid colour fills. |
+| **Pixel Art** | Converts the drawing into 16-bit sprite pixel art with a constrained palette. |
+| **3D Clay** | Renders a studio-lit 3D clay miniature with soft subsurface scattering. |
+| **Anime** | Produces cel-shaded anime illustration with expressive linework. |
 
-### AI refinement
-
-The bottom bar refines your drawing and adds the result as a new layer:
-
-- **Presets**: Click **Beautify**, **Notes**, **Watercolor**, **Concept Art**, **Vector**, **Pixel Art**, **3D Clay**, or **Anime** to transform the current canvas.
-- **Custom prompt**: Type instructions in the prompt box and press `Enter` or click **Refine**.
+Type custom instructions in the prompt field and press `Enter` or click **Refine** to combine any preset with a specific prompt.
 
 ### Keyboard shortcuts
 
@@ -84,19 +104,20 @@ The bottom bar refines your drawing and adds the result as a new layer:
 | `U` / `O` | Rectangle / Ellipse |
 | `L` / `A` | Line / Arrow |
 | `T` | Text |
-| `G` | Paint bucket fill |
+| `G` | Paint bucket (scanline flood fill) |
 | `I` | Eyedropper |
 | `H` / `Space` | Pan canvas (scroll to zoom) |
-| `X` | Swap foreground and background colors |
+| `X` | Swap foreground and background colours |
 | `[` / `]` | Decrease / increase tool size |
 | `⌘Z` / `⇧⌘Z` | Undo / Redo |
+| `⌘0` / `⌘9` | Zoom 100% / Fit canvas to viewport |
 | `⌫` | Clear active selection or layer |
 
 ---
 
-## Development
+## Development and testing
 
-Build the frontend, run the typechecker, and run the test suite:
+Build the frontend bundle, run TypeScript typechecking, and run the integration test suite:
 
 ```bash
 npm run build
@@ -104,27 +125,60 @@ npm run typecheck
 npm test
 ```
 
-### Project layout
+### Debugging the sidecar
+
+Antigravity writes sidecar `stdout` and `stderr` to:
+
+```text
+~/.gemini/antigravity/sidecar_data/agy-paint-studio/studio/logs/sidecar.log
+```
+
+- **Frontend changes** (`src/`): Run `npm run build`, then close and reopen the Paint Studio panel. The backend re-reads `dist/index.html`, `dist/app.js`, and `dist/styles.css` from disk on each request with `Cache-Control: no-store`.
+- **Backend changes** (`server/` or `sidecars/studio/`): Toggle **Paint Studio** off and back on in **Customizations → Installed** (or touch `sidecars/studio/sidecar.json`) to restart the sidecar process.
+
+---
+
+## Architecture and internals
 
 ```text
 agy-paint-studio/
-├── plugin.json                        # Plugin manifest
-├── sidecars/studio/                   # UI extension sidecar manifest and entrypoint
-├── skills/paint-studio/               # /paint-studio inline + side-pane skill
-├── server/                            # SidecarApp routes and Gemini service
-├── src/                               # Canvas engine and UI components
-├── assets/                            # Icons and documentation screenshots
-└── tests/                             # Unit and server integration tests
+├── plugin.json                        # Plugin identity, display name, version, and logo
+├── assets/
+│   └── logo.svg                       # Square SVG icon shown in Customizations and .psd file tabs
+├── sidecars/
+│   └── studio/
+│       ├── sidecar.json               # Sidecar process config, AUX_PANE entrypoint, and file_extensions
+│       ├── package.json               # Marks the sidecar directory as an ES module
+│       └── run.mjs                    # Sidecar entrypoint
+├── skills/
+│   └── paint-studio/
+│       └── SKILL.md                   # /paint-studio runbook for inline + side-pane launch
+├── server/
+│   ├── index.mjs                      # SidecarApp routes, session/filesystem I/O, and /api/template
+│   └── services/
+│       └── gemini.mjs                 # Vertex AI image refinement service
+├── src/                               # TypeScript canvas engine, PSD parser, and UI components
+└── tests/                             # Node test runner suites (flood fill, PSD, Gemini, HTTP endpoints)
 ```
 
+### Sidecar API routes
+
+| Route | Method | Auth | Purpose |
+| :--- | :--- | :--- | :--- |
+| `/`, `/app.js`, `/styles.css` | `GET` | Open | Serves the classic IIFE frontend bundle to the `plugin://` iframe. |
+| `/preload.js` | `GET` | Open | Injected by `SidecarApp`; exposes `window.sidecar` and syncs host theme tokens. |
+| `/api/health` | `GET` | Open | Returns `{ status: "ok", port }` for health checks. |
+| `/api/template` | `GET` | Open | Generates a self-contained HTML artifact for `<agent-embed>` inline chat mode. |
+| `/api/fs/open` | `GET` | Open | Streams `.psd` or image files from allowed user/workspace roots when opened via `?file=`. |
+| `/api/fs/info` | `GET` | Open | Resolves default save directories (`Downloads`, `Desktop`, `Workspace`, `Session`). |
+| `/api/fs/save` | `POST` | `X-Sidecar-Token` | Saves `.psd`, `PNG`, `JPEG`, or `WebP` files to allowed local directories. |
+| `/api/artifact` | `GET` / `POST` | `X-Sidecar-Token` (`POST`) | Reads or writes session artifacts inside `<appDataDir>/brain/<session-id>/`. |
+| `/api/ai/refine` | `POST` | `X-Sidecar-Token` | Refines the composite canvas with `gemini-3.1-flash-lite-image`. |
+
 ---
 
-## License
+## License and compliance
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
-
----
-
-## Disclaimer
 
 This is not an officially supported Google product.
