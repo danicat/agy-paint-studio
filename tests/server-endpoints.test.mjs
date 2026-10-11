@@ -394,4 +394,26 @@ describe('SidecarApp UI Extension Endpoints & Security Integration Tests', () =>
     );
     assert.ok(openEtcRes.status === 400 || openEtcRes.status === 403);
   });
+
+  test('Frontend UI modules use sidecarFetch (never raw fetch) so inline about:srcdoc embeds resolve baseUrl', async () => {
+    const artifactModalSrc = fs.readFileSync(
+      path.join(projectRoot, 'src', 'ui', 'ArtifactModal.ts'),
+      'utf-8'
+    );
+    assert.ok(
+      !/\bfetch\(/.test(artifactModalSrc),
+      'ArtifactModal.ts must use sidecarFetch() instead of raw fetch() so inline about:srcdoc widgets resolve getApiBaseUrl()'
+    );
+    assert.ok(
+      artifactModalSrc.includes('sidecarFetch(fileUrl)'),
+      'ArtifactModal.loadArtifact must call sidecarFetch(fileUrl)'
+    );
+
+    const templateRes = await fetch(`${baseUrl}/api/template?session_id=valid-session-1`);
+    assert.strictEqual(templateRes.status, 200);
+    const templateHtml = await templateRes.text();
+    assert.ok(templateHtml.includes('window.__STUDIO_EMBED__'));
+    assert.ok(!templateHtml.includes('await fetch(fileUrl)'));
+  });
 });
+

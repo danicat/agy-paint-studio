@@ -253,7 +253,7 @@ export class ArtifactModal {
     try {
       NotificationManager.info(`Loading artifact "${filename}"...`);
       const fileUrl = `/api/artifact?session_id=${encodeURIComponent(this.sessionId)}&filename=${encodeURIComponent(filename)}`;
-      const res = await fetch(fileUrl);
+      const res = await sidecarFetch(fileUrl);
       if (!res.ok) {
         throw new Error(`Failed to download artifact "${filename}": HTTP ${res.status} ${res.statusText}`);
       }
