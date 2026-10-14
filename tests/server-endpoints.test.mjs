@@ -73,6 +73,10 @@ describe('SidecarApp UI Extension Endpoints & Security Integration Tests', () =>
       .toBuffer();
     testPngBase64 = `data:image/png;base64,${pngBuf.toString('base64')}`;
 
+    const stepMediaDir = path.join(session1Dir, '.system_generated', 'steps', '71');
+    fs.mkdirSync(stepMediaDir, { recursive: true });
+    fs.writeFileSync(path.join(stepMediaDir, 'media_0.png'), pngBuf);
+
     testPort = await getFreePort();
     baseUrl = `http://127.0.0.1:${testPort}`;
 
@@ -258,6 +262,35 @@ describe('SidecarApp UI Extension Endpoints & Security Integration Tests', () =>
       `Expected 400 or 403 for ../../etc/passwd, got ${traversalGet.status}`
     );
 
+    // Allow reading step media image in .system_generated/steps/71/media_0.png
+    const stepMediaGet = await fetch(
+      `${baseUrl}/api/artifact?session_id=${sessionId}&filename=${encodeURIComponent('.system_generated/steps/71/media_0.png')}`
+    );
+    assert.strictEqual(stepMediaGet.status, 200);
+    assert.strictEqual(stepMediaGet.headers.get('content-type'), 'image/png');
+
+    // Discover step media image in GET /api/artifacts
+    const listArtifactsRes = await fetch(`${baseUrl}/api/artifacts?session_id=${sessionId}`);
+    assert.strictEqual(listArtifactsRes.status, 200);
+    const listArtifactsData = await listArtifactsRes.json();
+    assert.ok(
+      listArtifactsData.artifacts.some(
+        (a) => a.filename === '.system_generated/steps/71/media_0.png' && a.source === 'Step Media'
+      )
+    );
+
+    // Block writing into .system_generated via POST /api/artifact
+    const postSysGen = await fetch(`${baseUrl}/api/artifact`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        session_id: sessionId,
+        filename: '.system_generated/steps/71/media_0.png',
+        data: testPngBase64,
+      }),
+    });
+    assert.strictEqual(postSysGen.status, 400);
+
     // Block reading internal transcript.jsonl
     const transcriptGet = await fetch(
       `${baseUrl}/api/artifact?session_id=${sessionId}&filename=${encodeURIComponent('.system_generated/logs/transcript.jsonl')}`
@@ -387,6 +420,38 @@ describe('SidecarApp UI Extension Endpoints & Security Integration Tests', () =>
     assert.strictEqual(openPngRes.headers.get('content-type'), 'image/png');
     const openPngBuf = Buffer.from(await openPngRes.arrayBuffer());
     assert.ok(openPngBuf.length > 0);
+
+    // Open step media image in .system_generated/steps/71/media_0.png via GET /api/fs/open
+    const stepMediaPath = path.join(
+      appDataDir,
+      'brain',
+      'valid-session-1',
+      '.system_generated',
+      'steps',
+      '71',
+      'media_0.png'
+    );
+    const openStepMediaRes = await fetch(
+      `${baseUrl}/api/fs/open?file=${encodeURIComponent(stepMediaPath)}`
+    );
+    assert.strictEqual(openStepMediaRes.status, 200);
+    assert.strictEqual(openStepMediaRes.headers.get('content-type'), 'image/png');
+    const openStepMediaBuf = Buffer.from(await openStepMediaRes.arrayBuffer());
+    assert.ok(openStepMediaBuf.length > 0);
+
+    // Block reading internal logs inside .system_generated via GET /api/fs/open
+    const fakeLogsPngPath = path.join(
+      appDataDir,
+      'brain',
+      'valid-session-1',
+      '.system_generated',
+      'logs',
+      'secret.png'
+    );
+    const openLogsRes = await fetch(
+      `${baseUrl}/api/fs/open?file=${encodeURIComponent(fakeLogsPngPath)}`
+    );
+    assert.strictEqual(openLogsRes.status, 400);
 
     // Block reading disallowed paths or extensions via GET /api/fs/open
     const openEtcRes = await fetch(

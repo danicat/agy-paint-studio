@@ -217,7 +217,7 @@ function getActiveSessionId() {
   return recent.length > 0 ? recent[0].id : null;
 }
 
-function validateArtifactRelativePath(relPath) {
+function validateArtifactRelativePath(relPath, { allowReadSystemGeneratedMedia = false } = {}) {
   if (!relPath || typeof relPath !== 'string' || !relPath.trim()) {
     throw createHttpError('Missing or empty artifact filename/path.', 400);
   }
@@ -237,13 +237,24 @@ function validateArtifactRelativePath(relPath) {
     );
   }
 
-  if (
+  if (!allowReadSystemGeneratedMedia) {
+    if (
+      normalized === '.system_generated' ||
+      normalized.startsWith('.system_generated/') ||
+      segments.includes('.system_generated')
+    ) {
+      throw createHttpError(
+        `Access denied: writing into ".system_generated" is forbidden ("${relPath}").`,
+        400
+      );
+    }
+  } else if (
     normalized === '.system_generated' ||
-    normalized.startsWith('.system_generated/') ||
-    segments[0] === '.system_generated'
+    normalized.startsWith('.system_generated/logs') ||
+    normalized.startsWith('.system_generated/messages')
   ) {
     throw createHttpError(
-      `Access denied: access to ".system_generated" is forbidden ("${relPath}").`,
+      `Access denied: access to internal logs or messages in ".system_generated" is forbidden ("${relPath}").`,
       400
     );
   }
@@ -272,7 +283,8 @@ function scanConversationMedia(sessionDir) {
       if (
         entry.name === 'node_modules' ||
         entry.name === '.git' ||
-        entry.name === '.system_generated'
+        (relPrefix === '.system_generated' &&
+          (entry.name === 'logs' || entry.name === 'messages'))
       ) {
         continue;
       }
@@ -301,6 +313,8 @@ function scanConversationMedia(sessionDir) {
           walk(fullPath, relPath, 'User Upload');
         } else if (entry.name === '.tempmediaStorage') {
           walk(fullPath, relPath, 'Temp Media');
+        } else if (entry.name === '.system_generated') {
+          walk(fullPath, relPath, 'Step Media');
         } else if (!entry.name.startsWith('.')) {
           walk(fullPath, relPath, source);
         }
@@ -482,7 +496,9 @@ export function createSidecarApp() {
       const sessionId = data.session_id || data.sessionId;
       const filename = data.filename || data.path;
       const sessionDir = resolveSessionBrainDir(sessionId);
-      const { ext } = validateArtifactRelativePath(filename);
+      const { ext } = validateArtifactRelativePath(filename, {
+        allowReadSystemGeneratedMedia: true,
+      });
 
       const targetPath = path.resolve(sessionDir, filename);
       const realSessionDir = fs.realpathSync(sessionDir);
@@ -839,9 +855,14 @@ export function createSidecarApp() {
       }
 
       const normalizedSegments = targetPath.split(path.sep);
-      if (normalizedSegments.includes('.system_generated')) {
+      const sysGenIdx = normalizedSegments.indexOf('.system_generated');
+      if (
+        sysGenIdx !== -1 &&
+        (normalizedSegments[sysGenIdx + 1] === 'logs' ||
+          normalizedSegments[sysGenIdx + 1] === 'messages')
+      ) {
         throw createHttpError(
-          'Access denied: reading from ".system_generated" is forbidden.',
+          'Access denied: reading internal logs or messages from ".system_generated" is forbidden.',
           400
         );
       }

@@ -133,6 +133,18 @@ export function getInitialSessionId(): string {
     return querySessionId;
   }
 
+  const fileParam = params.get('file')?.trim();
+  if (fileParam) {
+    const brainMatch = fileParam.replace(/\\/g, '/').match(/\/brain\/([a-zA-Z0-9_-]{1,128})\//);
+    if (
+      brainMatch &&
+      brainMatch[1] !== 'tempmediaStorage' &&
+      VALID_SESSION_ID_REGEX.test(brainMatch[1])
+    ) {
+      return brainMatch[1];
+    }
+  }
+
   return '';
 }
 

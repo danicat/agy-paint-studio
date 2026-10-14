@@ -180,10 +180,14 @@ export class NotificationManager {
       margin: 0 0 16px 0;
     `;
     preEl.style.userSelect = 'text';
+    const normalizedStack =
+      errorStack && errorStack.startsWith(errorMessage)
+        ? errorStack.slice(errorMessage.length).replace(/^\r?\n/, '')
+        : errorStack;
     const detailLines = [
       context ? `[Context] ${context}` : '',
       errorMessage,
-      errorStack && errorStack !== errorMessage ? errorStack : '',
+      normalizedStack && normalizedStack !== errorMessage ? normalizedStack : '',
     ].filter(Boolean);
     preEl.textContent = detailLines.join('\n\n');
     overlay.appendChild(preEl);
