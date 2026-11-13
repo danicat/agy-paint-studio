@@ -174,6 +174,9 @@ describe('SidecarApp UI Extension Endpoints & Security Integration Tests', () =>
     const logoRes = await fetch(`${baseUrl}/assets/logo.svg`);
     assert.strictEqual(logoRes.status, 200);
     assert.strictEqual(logoRes.headers.get('content-type'), 'image/svg+xml');
+    const logoSvg = await logoRes.text();
+    assert.ok(logoSvg.includes('viewBox="0 0 128 128"'));
+    assert.ok(!logoSvg.includes('<rect width='), 'logo.svg must not have a full-canvas background rect');
 
     const templateRes = await fetch(`${baseUrl}/api/template?session_id=valid-session-1`);
     assert.strictEqual(templateRes.status, 200);

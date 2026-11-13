@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import logoSvg from '../../assets/logo.svg?raw';
 import type { CanvasEngine } from '../engine/CanvasEngine.ts';
 import { SelectionTool } from '../engine/tools/SelectionTool.ts';
 import { importPsdFile } from '../utils/psd.ts';
@@ -142,11 +143,7 @@ export class Header {
     this.container.innerHTML = `
       <div class="header-left">
         <div class="app-brand" title="Paint Studio">
-          <div class="brand-logo">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
-            </svg>
-          </div>
+          <div class="brand-logo">${logoSvg}</div>
           <span class="app-title">Paint Studio</span>
         </div>
 

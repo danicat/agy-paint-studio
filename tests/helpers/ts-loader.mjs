@@ -38,6 +38,15 @@ export function transpileTsToDataUrl(filePath) {
     /(from\s+['"])([^'"]+)(['"])/g,
     (_match, prefix, specifier, suffix) => {
       if (specifier.startsWith('.')) {
+        if (specifier.endsWith('?raw')) {
+          const rawPath = path.resolve(path.dirname(absPath), specifier.slice(0, -4));
+          const rawContent = fs.readFileSync(rawPath, 'utf-8');
+          const rawUrl = `data:text/javascript;base64,${Buffer.from(
+            `export default ${JSON.stringify(rawContent)};`,
+            'utf-8'
+          ).toString('base64')}`;
+          return `${prefix}${rawUrl}${suffix}`;
+        }
         let targetPath = path.resolve(path.dirname(absPath), specifier);
         if (!fs.existsSync(targetPath) && fs.existsSync(`${targetPath}.ts`)) {
           targetPath = `${targetPath}.ts`;
