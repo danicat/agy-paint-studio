@@ -54,6 +54,7 @@ export type StudioMode = 'preview' | 'full';
 const VALID_SESSION_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
 
 let activeSessionId: string | null = null;
+let initialFileCleared = false;
 const sessionChangeListeners: Array<(sessionId: string) => void> = [];
 
 /**
@@ -268,6 +269,9 @@ export function getFullStudioUrl(): string {
 
   const url = new URL(baseHref);
   for (const [k, v] of currentParams.entries()) {
+    if (initialFileCleared && k === 'file') {
+      continue;
+    }
     url.searchParams.set(k, v);
   }
   url.searchParams.set('mode', 'full');
@@ -276,6 +280,48 @@ export function getFullStudioUrl(): string {
     url.searchParams.set('session_id', sid);
   }
   return url.toString();
+}
+
+/**
+ * Clear the initial `?file=` parameter state after dismissing a missing-file view so Full Mode links do not reopen it.
+ */
+export function clearInitialFileParam(): void {
+  initialFileCleared = true;
+
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('file')) {
+      url.searchParams.delete('file');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }
+
+  const fullStudioLink =
+    typeof document !== 'undefined'
+      ? (document.getElementById('btn-full-studio') as HTMLAnchorElement | null)
+      : null;
+  if (fullStudioLink) {
+    fullStudioLink.href = getFullStudioUrl();
+  }
+}
+
+/**
+ * Extract a clean human-readable error message from a JSON or plain-text API error response.
+ */
+export function parseApiErrorMessage(bodyText: string, status: number, statusText = ''): string {
+  const trimmed = bodyText.trim();
+  if (trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed) as { error?: unknown };
+      if (parsed && typeof parsed === 'object' && typeof parsed.error === 'string' && parsed.error.trim()) {
+        return parsed.error.trim();
+      }
+    } catch {
+      // Response body is plain text rather than JSON
+    }
+    return trimmed;
+  }
+  return `HTTP ${status}${statusText ? `: ${statusText}` : ''}`;
 }
 
 /**

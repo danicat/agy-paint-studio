@@ -14,8 +14,15 @@
  * limitations under the License.
  */
 
+export interface FileNotFoundOptions {
+  displayName: string;
+  filePath: string;
+  onOpenBlankCanvas: () => void;
+}
+
 export class NotificationManager {
   private static container: HTMLElement | null = null;
+  private static pendingTimers: Set<ReturnType<typeof setTimeout>> = new Set();
 
   private static getContainer(): HTMLElement {
     if (!this.container) {
@@ -81,10 +88,16 @@ export class NotificationManager {
 
     // Fail-fast rule: Errors should be persistent until explicitly dismissed by user
     if (duration > 0) {
-      setTimeout(() => {
+      const fadeTimer = setTimeout(() => {
+        this.pendingTimers.delete(fadeTimer);
         toast.classList.add('toast-fade-out');
-        setTimeout(() => toast.remove(), 300);
+        const removeTimer = setTimeout(() => {
+          this.pendingTimers.delete(removeTimer);
+          toast.remove();
+        }, 300);
+        this.pendingTimers.add(removeTimer);
       }, duration);
+      this.pendingTimers.add(fadeTimer);
     }
   }
 
@@ -102,12 +115,116 @@ export class NotificationManager {
     this.show(message, 'info', duration);
   }
 
+  public static clearToasts() {
+    for (const timer of this.pendingTimers) {
+      clearTimeout(timer);
+    }
+    this.pendingTimers.clear();
+    if (this.container) {
+      this.container.textContent = '';
+    }
+  }
+
+  public static fileNotFound(options: FileNotFoundOptions) {
+    console.warn('[Paint Studio] File not found:', options.filePath);
+
+    this.clearToasts();
+
+    const existingFatal = document.getElementById('fatal-error-overlay');
+    if (existingFatal) {
+      existingFatal.remove();
+    }
+    const existingNotFound = document.getElementById('file-not-found-overlay');
+    if (existingNotFound) {
+      existingNotFound.remove();
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'file-not-found-overlay';
+    overlay.className = 'modal-overlay file-not-found-overlay';
+    overlay.setAttribute('role', 'alertdialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    const card = document.createElement('div');
+    card.className = 'modal-dialog file-not-found-card';
+
+    const iconEl = document.createElement('div');
+    iconEl.className = 'file-not-found-icon';
+    iconEl.innerHTML = `
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="9.5" y1="12.5" x2="14.5" y2="17.5"></line>
+        <line x1="14.5" y1="12.5" x2="9.5" y2="17.5"></line>
+      </svg>
+    `;
+
+    const headingEl = document.createElement('h2');
+    headingEl.className = 'file-not-found-title';
+    headingEl.textContent = 'File Not Found';
+
+    const descEl = document.createElement('p');
+    descEl.className = 'file-not-found-desc';
+    descEl.textContent = `"${options.displayName}" no longer exists at this location. It may have been moved, renamed, or cleaned up after a temporary task.`;
+
+    const pathEl = document.createElement('pre');
+    pathEl.className = 'file-not-found-path';
+    pathEl.textContent = options.filePath;
+
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'file-not-found-actions';
+
+    const blankBtn = document.createElement('button');
+    blankBtn.id = 'file-not-found-blank-btn';
+    blankBtn.type = 'button';
+    blankBtn.className = 'btn btn-primary';
+    blankBtn.textContent = 'Open Blank Canvas';
+
+    let dismissed = false;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        openBlank();
+      }
+    };
+
+    const openBlank = () => {
+      if (dismissed) return;
+      dismissed = true;
+      window.removeEventListener('keydown', onKeyDown);
+      overlay.remove();
+      options.onOpenBlankCanvas();
+    };
+
+    blankBtn.addEventListener('click', openBlank);
+    window.addEventListener('keydown', onKeyDown);
+
+    actionsEl.appendChild(blankBtn);
+    card.appendChild(iconEl);
+    card.appendChild(headingEl);
+    card.appendChild(descEl);
+    card.appendChild(pathEl);
+    card.appendChild(actionsEl);
+    overlay.appendChild(card);
+
+    document.body.appendChild(overlay);
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => blankBtn.focus());
+    }
+  }
+
   public static fatal(title: string, error: unknown, context?: string) {
     console.error('[FATAL]', title, error, context ?? '');
+
+    this.clearToasts();
 
     const existing = document.getElementById('fatal-error-overlay');
     if (existing) {
       existing.remove();
+    }
+    const existingNotFound = document.getElementById('file-not-found-overlay');
+    if (existingNotFound) {
+      existingNotFound.remove();
     }
 
     const overlay = document.createElement('div');

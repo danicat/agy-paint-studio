@@ -23,11 +23,28 @@ import { LayerPanel } from './ui/LayerPanel.ts';
 import { NotificationManager } from './ui/Notification.ts';
 import { parsePsd } from './utils/psd.ts';
 import {
+  clearInitialFileParam,
   getStudioMode,
+  getWorkspaceUris,
   isInlineEmbed,
+  parseApiErrorMessage,
   sidecarFetch,
   type StudioMode
 } from './utils/api.ts';
+
+class FileOpenError extends Error {
+  public readonly statusCode: number;
+  public readonly filePath: string;
+  public readonly displayName: string;
+
+  constructor(statusCode: number, filePath: string, displayName: string, detail: string) {
+    super(`Failed to open "${displayName}" (HTTP ${statusCode}): ${detail}`);
+    this.name = 'FileOpenError';
+    this.statusCode = statusCode;
+    this.filePath = filePath;
+    this.displayName = displayName;
+  }
+}
 
 async function loadInitialFileParam(engine: CanvasEngine): Promise<void> {
   const fileParam = new URLSearchParams(window.location.search).get('file')?.trim();
@@ -38,12 +55,18 @@ async function loadInitialFileParam(engine: CanvasEngine): Promise<void> {
   const displayName = fileParam.split(/[\\/]/).pop() || fileParam;
   NotificationManager.info(`Opening "${displayName}"...`);
 
-  const res = await sidecarFetch(`/api/fs/open?file=${encodeURIComponent(fileParam)}`);
+  const workspaceUris = await getWorkspaceUris();
+  const openQuery = new URLSearchParams({ file: fileParam });
+  if (workspaceUris.length > 0) {
+    openQuery.set('workspace_uri', workspaceUris[0]);
+    openQuery.set('workspace_uris', JSON.stringify(workspaceUris));
+  }
+
+  const res = await sidecarFetch(`/api/fs/open?${openQuery.toString()}`);
   if (!res.ok) {
     const bodyText = await res.text();
-    throw new Error(
-      `Failed to open "${displayName}" (HTTP ${res.status}): ${bodyText || res.statusText}`
-    );
+    const detail = parseApiErrorMessage(bodyText, res.status, res.statusText);
+    throw new FileOpenError(res.status, fileParam, displayName, detail);
   }
 
   if (fileParam.toLowerCase().endsWith('.psd')) {
@@ -155,6 +178,19 @@ function initStudio(): void {
     // If opened as a custom file viewer (?file=/path/to/file.psd), load the file onto the canvas
     void loadInitialFileParam(engine).catch((err) => {
       console.error('[Paint Studio] Failed to load ?file= parameter:', err);
+      if (err instanceof FileOpenError && err.statusCode === 404) {
+        NotificationManager.fileNotFound({
+          displayName: err.displayName,
+          filePath: err.filePath,
+          onOpenBlankCanvas: () => {
+            clearInitialFileParam();
+            engine.resizeDocument(800, 600);
+            engine.initDefaultDocument();
+            engine.fitToViewport();
+          }
+        });
+        return;
+      }
       NotificationManager.fatal('Failed to Open File', err);
     });
 

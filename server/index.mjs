@@ -356,6 +356,111 @@ function parseWorkspaceUri(uri) {
   return null;
 }
 
+export function extractWorkspaceUris(data = {}) {
+  const collected = [];
+  const pushUri = (val) => {
+    if (typeof val === 'string' && val.trim()) {
+      collected.push(val.trim());
+    }
+  };
+
+  pushUri(data.workspace_uri);
+  pushUri(data.workspaceUri);
+  if (Array.isArray(data.workspaceUris)) {
+    for (const uri of data.workspaceUris) {
+      pushUri(uri);
+    }
+  }
+
+  if (
+    data.workspace_uris !== undefined &&
+    data.workspace_uris !== null &&
+    String(data.workspace_uris).trim() !== ''
+  ) {
+    if (Array.isArray(data.workspace_uris)) {
+      for (const uri of data.workspace_uris) {
+        pushUri(uri);
+      }
+    } else if (typeof data.workspace_uris === 'string') {
+      let parsed;
+      try {
+        parsed = JSON.parse(data.workspace_uris);
+      } catch {
+        throw createHttpError(
+          'Malformed "workspace_uris" parameter: expected a JSON array of file:// URIs.',
+          400
+        );
+      }
+      if (!Array.isArray(parsed)) {
+        throw createHttpError(
+          'Malformed "workspace_uris" parameter: expected a JSON array of file:// URIs.',
+          400
+        );
+      }
+      for (const uri of parsed) {
+        pushUri(uri);
+      }
+    } else {
+      throw createHttpError(
+        'Malformed "workspace_uris" parameter: expected a JSON array of file:// URIs.',
+        400
+      );
+    }
+  }
+
+  return Array.from(new Set(collected));
+}
+
+export function buildAllowedFilesystemRoots(homeDir, data = {}) {
+  const roots = new Set();
+  const addRoot = (dirPath) => {
+    if (typeof dirPath !== 'string' || !dirPath.trim()) {
+      return;
+    }
+    const resolved = path.resolve(dirPath);
+    roots.add(resolved);
+    try {
+      if (fs.existsSync(resolved)) {
+        roots.add(fs.realpathSync(resolved));
+      }
+    } catch {
+      // ignore if path cannot be realpath-resolved
+    }
+  };
+
+  addRoot(homeDir);
+  addRoot(os.tmpdir());
+  if (process.platform !== 'win32') {
+    addRoot('/tmp');
+  }
+  addRoot(process.cwd());
+  if (process.env.WORKSPACE_ROOT) {
+    addRoot(process.env.WORKSPACE_ROOT);
+  }
+  if (process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) {
+    addRoot(process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR);
+  }
+  for (const uri of extractWorkspaceUris(data)) {
+    const parsed = parseWorkspaceUri(uri);
+    if (parsed) {
+      addRoot(parsed);
+    }
+  }
+  try {
+    addRoot(getAppDataDir());
+  } catch {
+    // ignore if appDataDir is not configured
+  }
+
+  const allowedRoots = Array.from(roots);
+  const isWithinAllowedRoot = (candidate) =>
+    allowedRoots.some(
+      (root) => candidate === root || candidate.startsWith(root + path.sep)
+    );
+
+  return { allowedRoots, isWithinAllowedRoot };
+}
+
 export function createSidecarApp() {
   const app = new SidecarApp();
 
@@ -753,38 +858,7 @@ export function createSidecarApp() {
         );
       }
 
-      const allowedRoots = [
-        path.resolve(homeDir),
-        path.resolve(os.tmpdir()),
-        path.resolve(process.cwd()),
-      ];
-      try {
-        allowedRoots.push(fs.realpathSync(os.tmpdir()));
-      } catch {
-        // ignore if tmpdir realpath fails
-      }
-      if (process.env.WORKSPACE_ROOT) {
-        allowedRoots.push(path.resolve(process.env.WORKSPACE_ROOT));
-      }
-      if (process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) {
-        allowedRoots.push(path.resolve(process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR));
-      }
-      if (Array.isArray(workspaceUris)) {
-        for (const uri of workspaceUris) {
-          const parsed = parseWorkspaceUri(uri);
-          if (parsed) allowedRoots.push(parsed);
-        }
-      }
-      try {
-        allowedRoots.push(path.resolve(getAppDataDir()));
-      } catch {
-        // ignore if appDataDir is not configured
-      }
-
-      const isWithinAllowedRoot = (candidate) =>
-        allowedRoots.some(
-          (root) => candidate === root || candidate.startsWith(root + path.sep)
-        );
+      const { isWithinAllowedRoot } = buildAllowedFilesystemRoots(homeDir, data);
 
       if (!isWithinAllowedRoot(targetPath)) {
         throw createHttpError(
@@ -804,6 +878,16 @@ export function createSidecarApp() {
           `Access denied: resolved target directory "${realTargetDir}" is outside allowed user directories.`,
           403
         );
+      }
+
+      if (fs.lstatSync(targetPath, { throwIfNoEntry: false })) {
+        const realExistingTarget = fs.realpathSync(targetPath);
+        if (!isWithinAllowedRoot(realExistingTarget)) {
+          throw createHttpError(
+            `Access denied: existing target symlink "${realExistingTarget}" is outside allowed user directories.`,
+            403
+          );
+        }
       }
 
       const rawBase64 = payload.includes(',') ? payload.split(',')[1] : payload;
@@ -867,32 +951,7 @@ export function createSidecarApp() {
         );
       }
 
-      const allowedRoots = [
-        path.resolve(homeDir),
-        path.resolve(os.tmpdir()),
-        path.resolve(process.cwd()),
-      ];
-      try {
-        allowedRoots.push(fs.realpathSync(os.tmpdir()));
-      } catch {
-        // ignore if tmpdir realpath fails
-      }
-      if (process.env.WORKSPACE_ROOT) {
-        allowedRoots.push(path.resolve(process.env.WORKSPACE_ROOT));
-      }
-      if (process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) {
-        allowedRoots.push(path.resolve(process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR));
-      }
-      try {
-        allowedRoots.push(path.resolve(getAppDataDir()));
-      } catch {
-        // ignore if appDataDir is not configured
-      }
-
-      const isWithinAllowedRoot = (candidate) =>
-        allowedRoots.some(
-          (root) => candidate === root || candidate.startsWith(root + path.sep)
-        );
+      const { isWithinAllowedRoot } = buildAllowedFilesystemRoots(homeDir, data);
 
       if (!isWithinAllowedRoot(targetPath)) {
         throw createHttpError(

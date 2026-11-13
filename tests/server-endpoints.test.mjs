@@ -458,6 +458,98 @@ describe('SidecarApp UI Extension Endpoints & Security Integration Tests', () =>
       `${baseUrl}/api/fs/open?file=${encodeURIComponent('/etc/passwd')}`
     );
     assert.ok(openEtcRes.status === 400 || openEtcRes.status === 403);
+
+    // Support workspace_uri and workspace_uris query parameters on GET /api/fs/open
+    const openWithWorkspaceUri = await fetch(
+      `${baseUrl}/api/fs/open?file=${encodeURIComponent(savePngData.path)}&workspace_uri=${encodeURIComponent(workspaceUri)}`
+    );
+    assert.strictEqual(openWithWorkspaceUri.status, 200);
+
+    const openWithWorkspaceUris = await fetch(
+      `${baseUrl}/api/fs/open?file=${encodeURIComponent(savePngData.path)}&workspace_uris=${encodeURIComponent(JSON.stringify([workspaceUri]))}`
+    );
+    assert.strictEqual(openWithWorkspaceUris.status, 200);
+
+    // Fail fast with 400 on malformed workspace_uris JSON
+    const malformedWorkspaceUrisRes = await fetch(
+      `${baseUrl}/api/fs/open?file=${encodeURIComponent(savePngData.path)}&workspace_uris=${encodeURIComponent('not-json')}`
+    );
+    assert.strictEqual(malformedWorkspaceUrisRes.status, 400);
+  });
+
+  if (process.platform !== 'win32' && fs.existsSync('/tmp')) {
+    test('POST /api/fs/save and GET /api/fs/open allow /tmp paths (including macOS /private/tmp symlink)', async () => {
+      const authHeaders = {
+        'Content-Type': 'application/json',
+        'X-Sidecar-Token': sidecarToken,
+      };
+      const slashTmpDir = fs.mkdtempSync('/tmp/agy-paint-slash-tmp-');
+      try {
+        const saveTmpRes = await fetch(`${baseUrl}/api/fs/save`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            directory: slashTmpDir,
+            filename: 'bunny_preview.png',
+            data: testPngBase64,
+          }),
+        });
+        assert.strictEqual(saveTmpRes.status, 200);
+
+        const tmpFilePath = path.join(slashTmpDir, 'bunny_preview.png');
+        const openTmpRes = await fetch(
+          `${baseUrl}/api/fs/open?file=${encodeURIComponent(tmpFilePath)}`
+        );
+        assert.strictEqual(openTmpRes.status, 200);
+        assert.strictEqual(openTmpRes.headers.get('content-type'), 'image/png');
+        const openTmpBuf = Buffer.from(await openTmpRes.arrayBuffer());
+        assert.ok(openTmpBuf.length > 0);
+
+        const missingTmpPath = path.join(slashTmpDir, 'missing.svg.png');
+        const missingTmpRes = await fetch(
+          `${baseUrl}/api/fs/open?file=${encodeURIComponent(missingTmpPath)}`
+        );
+        assert.strictEqual(missingTmpRes.status, 404);
+        const missingBody = await missingTmpRes.json();
+        assert.strictEqual(missingBody.statusCode, 404);
+        assert.ok(missingBody.error.includes('File not found'));
+      } finally {
+        fs.rmSync(slashTmpDir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test('buildAllowedFilesystemRoots allows workspace_uri/workspace_uris outside home/tmp and rejects unrelated paths', async () => {
+    const loaderPath = path.join(
+      os.homedir(),
+      '.gemini',
+      'antigravity',
+      'lib',
+      'node_modules',
+      'sidecar_sdk',
+      'register_loader.js'
+    );
+    await import(pathToFileURL(loaderPath).href);
+    const { buildAllowedFilesystemRoots } = await import('../server/index.mjs');
+
+    const isolatedHome = path.join(tempRoot, 'isolated-home');
+    fs.mkdirSync(isolatedHome, { recursive: true });
+
+    const externalWs1 = '/opt/agy-paint-external-ws-1';
+    const externalWs2 = '/opt/agy-paint-external-ws-2';
+    const outsideDir = '/opt/agy-paint-outside-dir';
+
+    const { allowedRoots, isWithinAllowedRoot } = buildAllowedFilesystemRoots(isolatedHome, {
+      workspace_uri: pathToFileURL(externalWs1).href,
+      workspace_uris: JSON.stringify([pathToFileURL(externalWs2).href]),
+    });
+
+    assert.ok(allowedRoots.includes(path.resolve(isolatedHome)));
+    assert.ok(allowedRoots.includes(path.resolve(externalWs1)));
+    assert.ok(allowedRoots.includes(path.resolve(externalWs2)));
+    assert.strictEqual(isWithinAllowedRoot(path.join(externalWs1, 'sprite.png')), true);
+    assert.strictEqual(isWithinAllowedRoot(path.join(externalWs2, 'nested', 'hero.png')), true);
+    assert.strictEqual(isWithinAllowedRoot(path.join(outsideDir, 'secret.png')), false);
   });
 
   test('Frontend UI modules use sidecarFetch (never raw fetch) so inline about:srcdoc embeds resolve baseUrl', async () => {

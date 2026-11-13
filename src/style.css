@@ -89,7 +89,8 @@ pre,
 .input-text,
 .refine-prompt-textarea,
 .modal-overlay pre,
-#fatal-error-overlay pre {
+#fatal-error-overlay pre,
+#file-not-found-overlay pre {
   user-select: text;
 }
 
@@ -1536,5 +1537,74 @@ body.studio-mode-preview.studio-mode-inline #app-root {
   color: var(--accent-color);
   border-color: var(--accent-color);
   font-weight: 600;
+}
+
+/* Missing File (404) Overlay */
+.file-not-found-overlay {
+  z-index: 1000000;
+  padding: 20px;
+}
+
+.file-not-found-card {
+  width: 440px;
+  max-width: 94vw;
+  padding: 24px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.file-not-found-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.file-not-found-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.file-not-found-desc {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 380px;
+}
+
+.file-not-found-path {
+  width: 100%;
+  margin: 2px 0 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-color);
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.file-not-found-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
 }
 
