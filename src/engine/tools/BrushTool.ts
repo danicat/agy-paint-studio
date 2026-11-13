@@ -101,20 +101,6 @@ export class BrushTool extends BaseTool {
   private finishStroke(engine: CanvasEngine): void {
     this.isDrawing = false;
     this.points = [];
-
-    const layer = engine.getActiveLayer();
-    if (layer && layer.visible && !layer.locked) {
-      const opacity = Math.min(1.0, Math.max(0.01, engine.brushOpacity));
-      layer.ctx.save();
-      layer.ctx.globalAlpha = opacity;
-      layer.ctx.drawImage(engine.overlayCanvas, 0, 0);
-      layer.ctx.restore();
-      layer.markDirty();
-    }
-
-    engine.overlayCtx.clearRect(0, 0, engine.width, engine.height);
-    engine.overlayCanvas.style.opacity = '1';
-    engine.render();
-    engine.commitHistory();
+    this.finishOverlayStroke(engine);
   }
 }

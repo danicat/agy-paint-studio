@@ -21,6 +21,7 @@ import { ShapeTool } from '../engine/tools/ShapeTool.ts';
 import { TextTool } from '../engine/tools/TextTool.ts';
 import { BucketTool } from '../engine/tools/BucketTool.ts';
 import { EraserTool } from '../engine/tools/EraserTool.ts';
+import { shouldIgnoreCanvasShortcut } from './Modal.ts';
 
 export class Toolbar {
   private engine: CanvasEngine;
@@ -196,11 +197,7 @@ export class Toolbar {
 
     let activeBtnKey = typeof toolOrId === 'string' ? toolOrId : tool?.id || 'brush';
     if (tool instanceof ShapeTool || tool?.id === 'shape') {
-      const st = (tool as ShapeTool).shapeType;
-      if (st === 'rect' || st === 'rectangle') activeBtnKey = 'rect';
-      else if (st === 'circle' || st === 'ellipse') activeBtnKey = 'circle';
-      else if (st === 'line') activeBtnKey = 'line';
-      else if (st === 'arrow') activeBtnKey = 'arrow';
+      activeBtnKey = (tool as ShapeTool).shapeType;
     }
 
     this.container.querySelectorAll('.tool-btn').forEach((btn) => {
@@ -216,36 +213,6 @@ export class Toolbar {
     this.engine.secondaryColor = temp;
     this.updateColorSwatches();
     this.engine.notifyColorChange(this.engine.primaryColor);
-  }
-
-  public resetView(): void {
-    this.engine.resetZoom();
-  }
-
-  private shouldIgnoreKeyboardShortcut(e: KeyboardEvent): boolean {
-    const target = e.target as HTMLElement | null;
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      Boolean(target?.isContentEditable)
-    ) {
-      return true;
-    }
-
-    const overlays = document.querySelectorAll('.modal-overlay');
-    for (const overlay of overlays) {
-      const el = overlay as HTMLElement;
-      const computedDisplay =
-        typeof window.getComputedStyle === 'function'
-          ? window.getComputedStyle(el).display
-          : el.style.display;
-      if (el.style.display !== 'none' && computedDisplay !== 'none') {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   private adjustActiveToolSize(delta: number): void {
@@ -301,7 +268,7 @@ export class Toolbar {
 
     // Keyboard Shortcuts
     window.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (this.shouldIgnoreKeyboardShortcut(e)) return;
+      if (shouldIgnoreCanvasShortcut(e)) return;
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
@@ -396,7 +363,7 @@ export class Toolbar {
           this.engine.zoomAt(0.15);
           break;
         case '0':
-          this.resetView();
+          this.engine.resetZoom();
           break;
       }
     });

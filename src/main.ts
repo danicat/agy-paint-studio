@@ -21,6 +21,7 @@ import { Toolbar } from './ui/Toolbar.ts';
 import { PropertyBar } from './ui/PropertyBar.ts';
 import { LayerPanel } from './ui/LayerPanel.ts';
 import { NotificationManager } from './ui/Notification.ts';
+import { loadBlobOrFileIntoEngine } from './utils/imageIO.ts';
 import { parsePsd } from './utils/psd.ts';
 import {
   clearInitialFileParam,
@@ -78,30 +79,10 @@ async function loadInitialFileParam(engine: CanvasEngine): Promise<void> {
   }
 
   const blob = await res.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error(`Failed to decode image "${displayName}".`));
-      image.src = objectUrl;
-    });
-
-    engine.resizeDocument(img.naturalWidth, img.naturalHeight);
-    engine.initDefaultDocument();
-    const active = engine.getActiveLayer();
-    if (active) {
-      active.ctx.drawImage(img, 0, 0);
-      engine.render();
-      engine.commitHistory();
-    }
-    engine.fitToViewport();
-    NotificationManager.success(
-      `Opened "${displayName}" (${img.naturalWidth}×${img.naturalHeight})`
-    );
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
+  const { width, height } = await loadBlobOrFileIntoEngine(engine, blob, displayName, {
+    fitToViewport: true,
+  });
+  NotificationManager.success(`Opened "${displayName}" (${width}×${height})`);
 }
 
 function applyStudioModeClasses(mode: StudioMode): void {

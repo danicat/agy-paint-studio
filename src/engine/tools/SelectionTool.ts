@@ -42,22 +42,6 @@ export class SelectionTool extends BaseTool {
     super('select', 'Selection & Cut', 'crosshair');
   }
 
-  public get selectionRect(): SelectionRect | null {
-    return this.selection;
-  }
-
-  public set selectionRect(rect: SelectionRect | null) {
-    this.selection = rect;
-  }
-
-  public get clipboard(): ImageData | null {
-    return SelectionTool.clipboardData;
-  }
-
-  public set clipboard(data: ImageData | null) {
-    SelectionTool.clipboardData = data;
-  }
-
   onPointerDown(engine: CanvasEngine, pt: Point): void {
     const layer = this.getWritableActiveLayer(engine);
     if (!layer) return;
@@ -172,7 +156,7 @@ export class SelectionTool extends BaseTool {
     }
 
     const tick = () => {
-      if (!this.selectionRect || this.selectionRect.width <= 0 || this.selectionRect.height <= 0) {
+      if (!this.selection || this.selection.width <= 0 || this.selection.height <= 0) {
         this.animFrameId = null;
         return;
       }
@@ -248,7 +232,7 @@ export class SelectionTool extends BaseTool {
       if (!fCtx) {
         throw new Error('Failed to obtain 2D context from floating selection canvas during cut.');
       }
-      this.clipboard = fCtx.getImageData(
+      SelectionTool.clipboardData = fCtx.getImageData(
         0, 0, this.floatingCanvas.width, this.floatingCanvas.height
       );
       this.floatingCanvas = null;
@@ -257,7 +241,7 @@ export class SelectionTool extends BaseTool {
       const imgData = layer.ctx.getImageData(
         this.selection.x, this.selection.y, this.selection.width, this.selection.height
       );
-      this.clipboard = imgData;
+      SelectionTool.clipboardData = imgData;
       layer.ctx.clearRect(this.selection.x, this.selection.y, this.selection.width, this.selection.height);
       layer.markDirty();
     }
@@ -281,23 +265,23 @@ export class SelectionTool extends BaseTool {
       if (!fCtx) {
         throw new Error('Failed to obtain 2D context from floating selection canvas during copy.');
       }
-      this.clipboard = fCtx.getImageData(0, 0, this.floatingCanvas.width, this.floatingCanvas.height);
+      SelectionTool.clipboardData = fCtx.getImageData(0, 0, this.floatingCanvas.width, this.floatingCanvas.height);
     } else {
-      this.clipboard = layer.ctx.getImageData(
+      SelectionTool.clipboardData = layer.ctx.getImageData(
         this.selection.x, this.selection.y, this.selection.width, this.selection.height
       );
     }
   }
 
   public paste(engine: CanvasEngine): void {
-    if (!this.clipboard) return;
+    const clip = SelectionTool.clipboardData;
+    if (!clip) return;
     const layer = this.getWritableActiveLayer(engine);
     if (!layer) return;
 
     // Commit any existing floating selection without creating a duplicate history entry if nothing was floating
     this.deselect(engine);
 
-    const clip = this.clipboard;
     const floating = document.createElement('canvas');
     floating.width = clip.width;
     floating.height = clip.height;

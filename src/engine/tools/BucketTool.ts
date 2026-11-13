@@ -30,31 +30,7 @@ export function runScanlineFloodFill(
   height: number,
   startX: number,
   startY: number,
-  fillColor: RgbaColor | ArrayLike<number>,
-  tolerance?: number
-): boolean;
-export function runScanlineFloodFill(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-  startX: number,
-  startY: number,
-  fillR: number,
-  fillG: number,
-  fillB: number,
-  fillA: number,
-  tolerance?: number
-): boolean;
-export function runScanlineFloodFill(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-  startX: number,
-  startY: number,
-  fillROrColor: number | RgbaColor | ArrayLike<number>,
-  fillGOrTolerance?: number,
-  fillB?: number,
-  fillA?: number,
+  fillColor: RgbaColor,
   tolerance = 32
 ): boolean {
   if (width <= 0 || height <= 0) return false;
@@ -64,32 +40,8 @@ export function runScanlineFloodFill(
 
   if (px < 0 || px >= width || py < 0 || py >= height) return false;
 
-  let r: number;
-  let g: number;
-  let b: number;
-  let a: number;
-  let rawTol: number;
-
-  if (typeof fillROrColor === 'object' && fillROrColor !== null) {
-    if ('r' in fillROrColor) {
-      r = fillROrColor.r;
-      g = fillROrColor.g;
-      b = fillROrColor.b;
-      a = fillROrColor.a;
-    } else {
-      r = fillROrColor[0];
-      g = fillROrColor[1];
-      b = fillROrColor[2];
-      a = fillROrColor[3];
-    }
-    rawTol = fillGOrTolerance !== undefined ? fillGOrTolerance : 32;
-  } else {
-    r = fillROrColor;
-    g = fillGOrTolerance!;
-    b = fillB!;
-    a = fillA!;
-    rawTol = tolerance;
-  }
+  const { r, g, b, a } = fillColor;
+  const rawTol = tolerance;
 
   const startPos = py * width + px;
   const startIdx = startPos * 4;
@@ -243,7 +195,7 @@ export class BucketTool extends BaseTool {
       prevCursor = engine.overlayCanvas.style.cursor;
       engine.overlayCanvas.style.cursor = 'wait';
 
-      const fillColor = this.parseColor(engine.primaryColor, engine.brushOpacity);
+      const fillColor = BucketTool.parseColor(engine.primaryColor, engine.brushOpacity);
       const imgData = layer.getImageData();
 
       const changed = runScanlineFloodFill(
@@ -252,10 +204,7 @@ export class BucketTool extends BaseTool {
         imgData.height,
         x,
         y,
-        fillColor.r,
-        fillColor.g,
-        fillColor.b,
-        fillColor.a,
+        fillColor,
         this.tolerance
       );
 
@@ -306,66 +255,6 @@ export class BucketTool extends BaseTool {
       };
     }
 
-    const rgbMatch = /^rgb\(\s*([^)]+)\s*\)$/i.exec(str);
-    if (rgbMatch) {
-      const parts = rgbMatch[1].split(',').map(p => p.trim());
-      if (parts.length !== 3) {
-        throw new Error(`Invalid rgb() color string: "${color}"`);
-      }
-      const nums = parts.map(p => {
-        if (!/^\d+(\.\d+)?$/.test(p)) {
-          throw new Error(`Invalid rgb() channel value "${p}" in "${color}"`);
-        }
-        const v = Number(p);
-        if (v < 0 || v > 255) {
-          throw new Error(`RGB channel out of range [0, 255]: ${v} in "${color}"`);
-        }
-        return Math.round(v);
-      });
-      return {
-        r: nums[0],
-        g: nums[1],
-        b: nums[2],
-        a: Math.round(255 * clampedOpacity),
-      };
-    }
-
-    const rgbaMatch = /^rgba\(\s*([^)]+)\s*\)$/i.exec(str);
-    if (rgbaMatch) {
-      const parts = rgbaMatch[1].split(',').map(p => p.trim());
-      if (parts.length !== 4) {
-        throw new Error(`Invalid rgba() color string: "${color}"`);
-      }
-      const rgbNums = parts.slice(0, 3).map(p => {
-        if (!/^\d+(\.\d+)?$/.test(p)) {
-          throw new Error(`Invalid rgba() channel value "${p}" in "${color}"`);
-        }
-        const v = Number(p);
-        if (v < 0 || v > 255) {
-          throw new Error(`RGBA channel out of range [0, 255]: ${v} in "${color}"`);
-        }
-        return Math.round(v);
-      });
-      const alphaStr = parts[3];
-      if (!/^\d+(\.\d+)?$/.test(alphaStr) && !/^\.\d+$/.test(alphaStr)) {
-        throw new Error(`Invalid rgba() alpha value "${alphaStr}" in "${color}"`);
-      }
-      const alphaVal = Number(alphaStr);
-      if (alphaVal < 0 || alphaVal > 1) {
-        throw new Error(`RGBA alpha out of range [0, 1]: ${alphaVal} in "${color}"`);
-      }
-      return {
-        r: rgbNums[0],
-        g: rgbNums[1],
-        b: rgbNums[2],
-        a: Math.round(alphaVal * 255 * clampedOpacity),
-      };
-    }
-
     throw new Error(`Unsupported or invalid color format: "${color}"`);
-  }
-
-  public parseColor(color: string, opacity = 1): { r: number; g: number; b: number; a: number } {
-    return BucketTool.parseColor(color, opacity);
   }
 }

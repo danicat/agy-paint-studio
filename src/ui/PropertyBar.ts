@@ -217,10 +217,7 @@ export class PropertyBar {
     const isClosedShape =
       isShape &&
       tool instanceof ShapeTool &&
-      (tool.shapeType === 'rect' ||
-        tool.shapeType === 'rectangle' ||
-        tool.shapeType === 'circle' ||
-        tool.shapeType === 'ellipse');
+      (tool.shapeType === 'rect' || tool.shapeType === 'circle');
     const isSelection = tool instanceof SelectionTool || tool.id === 'select';
     const isDrag = tool instanceof DragTool || tool.id === 'drag';
     const isBucket = tool instanceof BucketTool || tool.id === 'bucket';

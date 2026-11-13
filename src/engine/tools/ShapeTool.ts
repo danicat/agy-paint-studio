@@ -17,10 +17,10 @@
 import { BaseTool, type Point } from './BaseTool.ts';
 import type { CanvasEngine } from '../CanvasEngine.ts';
 
-export type ShapeType = 'line' | 'rectangle' | 'rect' | 'ellipse' | 'circle' | 'arrow';
+export type ShapeType = 'line' | 'rect' | 'circle' | 'arrow';
 
 export class ShapeTool extends BaseTool {
-  public shapeType: ShapeType = 'rectangle';
+  public shapeType: ShapeType = 'rect';
   public fill = false;
   private isDrawing = false;
   private hasMoved = false;
@@ -28,7 +28,7 @@ export class ShapeTool extends BaseTool {
   private startPt: Point | null = null;
   private currentPt: Point | null = null;
 
-  constructor(shapeType: ShapeType = 'rectangle') {
+  constructor(shapeType: ShapeType = 'rect') {
     super('shape', 'Shapes', 'crosshair');
     this.shapeType = shapeType;
   }
@@ -106,12 +106,7 @@ export class ShapeTool extends BaseTool {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
 
-    if (
-      this.shapeType === 'rectangle' ||
-      this.shapeType === 'rect' ||
-      this.shapeType === 'ellipse' ||
-      this.shapeType === 'circle'
-    ) {
+    if (this.shapeType === 'rect' || this.shapeType === 'circle') {
       const size = Math.max(Math.abs(dx), Math.abs(dy));
       const signX = dx < 0 ? -1 : 1;
       const signY = dy < 0 ? -1 : 1;
@@ -178,7 +173,7 @@ export class ShapeTool extends BaseTool {
         end.y - headLength * Math.sin(angle + arrowAngle)
       );
       ctx.stroke();
-    } else if (this.shapeType === 'rectangle' || this.shapeType === 'rect') {
+    } else if (this.shapeType === 'rect') {
       const x = Math.min(start.x, end.x);
       const y = Math.min(start.y, end.y);
       const w = Math.abs(end.x - start.x);
@@ -188,7 +183,7 @@ export class ShapeTool extends BaseTool {
         ctx.fillRect(x, y, w, h);
       }
       ctx.strokeRect(x, y, w, h);
-    } else if (this.shapeType === 'ellipse' || this.shapeType === 'circle') {
+    } else if (this.shapeType === 'circle') {
       const rx = Math.abs(end.x - start.x) / 2;
       const ry = Math.abs(end.y - start.y) / 2;
       const cx = Math.min(start.x, end.x) + rx;

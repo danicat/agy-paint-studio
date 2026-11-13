@@ -16,49 +16,12 @@
 
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
+import { transpileTsToDataUrl } from './helpers/ts-loader.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const moduleCache = new Map();
-
-function transpileTsToDataUrl(filePath) {
-  const absPath = path.resolve(filePath);
-  if (moduleCache.has(absPath)) {
-    return moduleCache.get(absPath);
-  }
-  const source = fs.readFileSync(absPath, 'utf-8');
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2022,
-    },
-    fileName: absPath,
-  });
-
-  const rewritten = outputText.replace(
-    /(from\s+['"])([^'"]+)(['"])/g,
-    (_match, prefix, specifier, suffix) => {
-      if (specifier.startsWith('.')) {
-        let targetPath = path.resolve(path.dirname(absPath), specifier);
-        if (!fs.existsSync(targetPath) && fs.existsSync(`${targetPath}.ts`)) {
-          targetPath = `${targetPath}.ts`;
-        }
-        const depUrl = transpileTsToDataUrl(targetPath);
-        return `${prefix}${depUrl}${suffix}`;
-      }
-      return `${prefix}${import.meta.resolve(specifier)}${suffix}`;
-    }
-  );
-
-  const dataUrl = `data:text/javascript;base64,${Buffer.from(rewritten, 'utf-8').toString('base64')}`;
-  moduleCache.set(absPath, dataUrl);
-  return dataUrl;
-}
 
 function createRasterCanvas(initialWidth = 40, initialHeight = 40) {
   let w = initialWidth;

@@ -15,34 +15,42 @@
  */
 
 import { fetchRecentSessions } from '../utils/api.ts';
+import { isImeComposing, mountModal, type MountedModal } from './Modal.ts';
 import { NotificationManager } from './Notification.ts';
 
 export type ConversationModalMode = 'set' | 'send';
 
+export type ConversationConfirmHandler = (
+  sessionId: string,
+  comment?: string
+) => Promise<void> | void;
+
+const CHAT_ICON_SVG = `
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+  </svg>
+`;
+
 export class ConversationModal {
-  private modalEl: HTMLElement | null = null;
+  private mounted: MountedModal | null = null;
   private currentSessionId: string | null = null;
-  private onConfirmCallback: ((sessionId: string) => Promise<void> | void) | null = null;
-  private boundEscHandler: ((e: KeyboardEvent) => void) | null = null;
+  private onConfirmCallback: ConversationConfirmHandler | null = null;
 
   public open(
     mode: ConversationModalMode,
     currentSessionId: string | null,
-    onConfirm: (sessionId: string) => Promise<void> | void
+    onConfirm: ConversationConfirmHandler
   ) {
     this.currentSessionId = currentSessionId;
     this.onConfirmCallback = onConfirm;
-    this.createModal(mode);
+    void this.createModal(mode);
   }
 
   public close() {
-    if (this.boundEscHandler) {
-      window.removeEventListener('keydown', this.boundEscHandler);
-      this.boundEscHandler = null;
-    }
-    if (this.modalEl) {
-      this.modalEl.remove();
-      this.modalEl = null;
+    if (this.mounted) {
+      const m = this.mounted;
+      this.mounted = null;
+      m.close();
     }
   }
 
@@ -50,47 +58,28 @@ export class ConversationModal {
     this.close();
 
     const isSetMode = mode === 'set';
-    const titleText = isSetMode ? 'Set Active Conversation' : 'Send Artwork to Conversation';
-    const actionBtnText = isSetMode ? 'Set Conversation' : 'Send to Conversation';
+    const titleText = isSetMode
+      ? 'Set Active Conversation'
+      : 'Send Artwork to Chat';
+    const actionBtnText = isSetMode ? 'Set Conversation' : 'Send to Chat';
     const descriptionText = isSetMode
       ? 'Set the active Antigravity conversation ID for Paint Studio. This controls where "Send to Chat" delivers your artwork.'
-      : 'Choose or enter a destination Antigravity conversation ID to deliver the current canvas artwork.';
+      : 'Add an optional note explaining what you want the model to do with this image, and confirm the target conversation ID.';
 
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.onclick = (e) => {
-      if (e.target === overlay) this.close();
-    };
+    const mounted = mountModal({
+      title: titleText,
+      className: 'conversation-modal',
+      maxWidth: '520px',
+      titleIconSvg: CHAT_ICON_SVG,
+      onClose: () => {
+        if (this.mounted === mounted) {
+          this.mounted = null;
+        }
+      },
+    });
+    this.mounted = mounted;
 
-    const modal = document.createElement('div');
-    modal.className = 'modal-dialog conversation-modal';
-    modal.style.maxWidth = '520px';
-
-    const header = document.createElement('div');
-    header.className = 'modal-header';
-
-    const titleWrap = document.createElement('div');
-    titleWrap.className = 'modal-title';
-    titleWrap.innerHTML = `
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-      </svg>
-    `;
-    const titleSpan = document.createElement('span');
-    titleSpan.textContent = titleText;
-    titleWrap.appendChild(titleSpan);
-
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'modal-close-btn';
-    closeBtn.title = 'Close (Esc)';
-    closeBtn.textContent = '✕';
-    closeBtn.addEventListener('click', () => this.close());
-
-    header.appendChild(titleWrap);
-    header.appendChild(closeBtn);
-
-    const body = document.createElement('div');
-    body.className = 'modal-body';
+    const { body } = mounted;
     body.style.display = 'flex';
     body.style.flexDirection = 'column';
     body.style.gap = '14px';
@@ -98,13 +87,41 @@ export class ConversationModal {
     const descEl = document.createElement('p');
     descEl.style.cssText = 'font-size: 13px; color: var(--text-secondary); margin: 0;';
     descEl.textContent = descriptionText;
+    body.appendChild(descEl);
+
+    const form = document.createElement('form');
+    form.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
+
+    let commentEl: HTMLTextAreaElement | null = null;
+    if (!isSetMode) {
+      const commentSection = document.createElement('div');
+      commentSection.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
+
+      const commentLabel = document.createElement('label');
+      commentLabel.setAttribute('for', 'send-chat-comment');
+      commentLabel.style.cssText =
+        'font-size: 12px; font-weight: 600; color: var(--text-primary);';
+      commentLabel.textContent = 'Comment for Agent (optional)';
+
+      commentEl = document.createElement('textarea');
+      commentEl.id = 'send-chat-comment';
+      commentEl.className = 'input-text send-chat-textarea';
+      commentEl.rows = 3;
+      commentEl.placeholder =
+        'Explain what this picture shows or what you want changed (Enter to send, Shift+Enter for newline)...';
+
+      commentSection.appendChild(commentLabel);
+      commentSection.appendChild(commentEl);
+      form.appendChild(commentSection);
+    }
 
     const inputSection = document.createElement('div');
     inputSection.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
 
     const inputLabel = document.createElement('label');
     inputLabel.setAttribute('for', 'input-conversation-id');
-    inputLabel.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--text-primary);';
+    inputLabel.style.cssText =
+      'font-size: 12px; font-weight: 600; color: var(--text-primary);';
     inputLabel.textContent = 'Conversation / Session ID';
 
     const inputRow = document.createElement('div');
@@ -115,11 +132,15 @@ export class ConversationModal {
     inputEl.id = 'input-conversation-id';
     inputEl.className = 'input-text';
     inputEl.placeholder = 'Enter session UUID...';
-    inputEl.value = this.currentSessionId || '';
+    inputEl.value =
+      this.currentSessionId && this.currentSessionId !== 'standalone'
+        ? this.currentSessionId
+        : '';
     inputEl.style.cssText =
       'flex: 1; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-panel); color: var(--text-primary); font-size: 13px; font-family: monospace;';
 
     const submitBtn = document.createElement('button');
+    submitBtn.type = 'submit';
     submitBtn.id = 'btn-submit-action';
     submitBtn.className = 'btn btn-sm btn-primary';
     submitBtn.style.whiteSpace = 'nowrap';
@@ -129,15 +150,20 @@ export class ConversationModal {
     inputRow.appendChild(submitBtn);
     inputSection.appendChild(inputLabel);
     inputSection.appendChild(inputRow);
+    form.appendChild(inputSection);
+    body.appendChild(form);
 
     const sessionsSection = document.createElement('div');
-    sessionsSection.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-top: 4px;';
+    sessionsSection.style.cssText =
+      'display: flex; flex-direction: column; gap: 6px; margin-top: 4px;';
 
     const sessionsHeader = document.createElement('div');
-    sessionsHeader.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+    sessionsHeader.style.cssText =
+      'display: flex; justify-content: space-between; align-items: center;';
 
     const sessionsTitle = document.createElement('span');
-    sessionsTitle.style.cssText = 'font-size: 12px; font-weight: 600; color: var(--text-primary);';
+    sessionsTitle.style.cssText =
+      'font-size: 12px; font-weight: 600; color: var(--text-primary);';
     sessionsTitle.textContent = 'Recent Active Sessions';
 
     const loadingEl = document.createElement('span');
@@ -155,36 +181,30 @@ export class ConversationModal {
 
     sessionsSection.appendChild(sessionsHeader);
     sessionsSection.appendChild(listEl);
-
-    body.appendChild(descEl);
-    body.appendChild(inputSection);
     body.appendChild(sessionsSection);
 
-    modal.appendChild(header);
-    modal.appendChild(body);
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-    this.modalEl = overlay;
-
-    this.boundEscHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        this.close();
-      }
-    };
-    window.addEventListener('keydown', this.boundEscHandler);
-
-    inputEl.focus();
-    inputEl.select();
+    if (commentEl && inputEl.value.trim()) {
+      commentEl.focus();
+    } else {
+      inputEl.focus();
+      inputEl.select();
+    }
 
     const doSubmit = async () => {
+      if (submitBtn.disabled) return;
       const val = inputEl.value.trim();
       if (!val) {
-        NotificationManager.error('Conversation ID required', 'Please enter or select a valid conversation ID.');
+        NotificationManager.error(
+          'Conversation ID required',
+          'Please enter or select a valid conversation ID.'
+        );
         return;
       }
       if (!/^[a-zA-Z0-9_-]{1,128}$/.test(val)) {
-        NotificationManager.error('Invalid ID format', 'Conversation ID contains invalid characters.');
+        NotificationManager.error(
+          'Invalid ID format',
+          'Conversation ID contains invalid characters.'
+        );
         return;
       }
 
@@ -193,23 +213,33 @@ export class ConversationModal {
 
       try {
         if (this.onConfirmCallback) {
-          await this.onConfirmCallback(val);
+          const comment = commentEl ? commentEl.value.trim() : undefined;
+          await this.onConfirmCallback(val, comment);
         }
         this.close();
-      } catch (err: any) {
+      } catch (err: unknown) {
         submitBtn.disabled = false;
         submitBtn.textContent = actionBtnText;
-        NotificationManager.error('Operation Failed', err instanceof Error ? err.message : String(err));
+        NotificationManager.error(
+          'Operation Failed',
+          err instanceof Error ? err.message : String(err)
+        );
       }
     };
 
-    submitBtn.addEventListener('click', doSubmit);
-    inputEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        doSubmit();
-      }
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void doSubmit();
     });
+
+    if (commentEl) {
+      commentEl.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter' && !e.shiftKey && !isImeComposing(e)) {
+          e.preventDefault();
+          void doSubmit();
+        }
+      });
+    }
 
     try {
       const sessions = await fetchRecentSessions();
@@ -218,14 +248,18 @@ export class ConversationModal {
 
       if (sessions.length === 0) {
         const emptyEl = document.createElement('div');
-        emptyEl.style.cssText = 'padding: 12px; text-align: center; font-size: 12px; color: var(--text-muted);';
+        emptyEl.style.cssText =
+          'padding: 12px; text-align: center; font-size: 12px; color: var(--text-muted);';
         emptyEl.textContent = 'No past sessions found';
         listEl.appendChild(emptyEl);
       } else {
         for (const s of sessions) {
           const isCurrent = s.id === this.currentSessionId;
           const timeFormatted = s.updatedAt
-            ? new Date(s.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            ? new Date(s.updatedAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
             : '';
 
           const row = document.createElement('div');
@@ -235,7 +269,8 @@ export class ConversationModal {
             'display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 4px; cursor: pointer; transition: background 0.15s; font-size: 12px;';
 
           const leftWrap = document.createElement('div');
-          leftWrap.style.cssText = 'display: flex; align-items: center; gap: 6px; overflow: hidden;';
+          leftWrap.style.cssText =
+            'display: flex; align-items: center; gap: 6px; overflow: hidden;';
 
           const dotSpan = document.createElement('span');
           dotSpan.style.cssText = `color: ${isCurrent ? '#10b981' : '#64748b'}; font-size: 10px;`;
@@ -266,7 +301,8 @@ export class ConversationModal {
           }
 
           const timeSpan = document.createElement('span');
-          timeSpan.style.cssText = 'color: var(--text-muted); font-size: 11px; flex-shrink: 0;';
+          timeSpan.style.cssText =
+            'color: var(--text-muted); font-size: 11px; flex-shrink: 0;';
           timeSpan.textContent = timeFormatted;
 
           row.appendChild(leftWrap);
@@ -280,17 +316,21 @@ export class ConversationModal {
           });
           row.addEventListener('click', () => {
             inputEl.value = s.id;
-            inputEl.focus();
+            if (commentEl) {
+              commentEl.focus();
+            } else {
+              inputEl.focus();
+            }
           });
           row.addEventListener('dblclick', () => {
             inputEl.value = s.id;
-            doSubmit();
+            void doSubmit();
           });
 
           listEl.appendChild(row);
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[ConversationModal] Failed to load recent sessions:', err);
       loadingEl.textContent = 'Error';
       const errEl = document.createElement('div');

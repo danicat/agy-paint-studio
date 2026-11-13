@@ -16,50 +16,13 @@
 
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
 import { writePsdUint8Array, readPsd, initializeCanvas } from 'ag-psd';
+import { transpileTsToDataUrl } from './helpers/ts-loader.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const moduleCache = new Map();
-
-function transpileTsToDataUrl(filePath) {
-  const absPath = path.resolve(filePath);
-  if (moduleCache.has(absPath)) {
-    return moduleCache.get(absPath);
-  }
-  const source = fs.readFileSync(absPath, 'utf-8');
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2022,
-    },
-    fileName: absPath,
-  });
-
-  const rewritten = outputText.replace(
-    /(from\s+['"])([^'"]+)(['"])/g,
-    (_match, prefix, specifier, suffix) => {
-      if (specifier.startsWith('.')) {
-        let targetPath = path.resolve(path.dirname(absPath), specifier);
-        if (!fs.existsSync(targetPath) && fs.existsSync(`${targetPath}.ts`)) {
-          targetPath = `${targetPath}.ts`;
-        }
-        const depUrl = transpileTsToDataUrl(targetPath);
-        return `${prefix}${depUrl}${suffix}`;
-      }
-      return `${prefix}${import.meta.resolve(specifier)}${suffix}`;
-    }
-  );
-
-  const dataUrl = `data:text/javascript;base64,${Buffer.from(rewritten, 'utf-8').toString('base64')}`;
-  moduleCache.set(absPath, dataUrl);
-  return dataUrl;
-}
 
 function createMockCanvas(initialWidth = 1, initialHeight = 1, initialData) {
   let w = initialWidth;
@@ -172,7 +135,7 @@ describe('PSD Utilities & ag-psd Serialization / Deserialization', () => {
     assert.equal(mapPsdToBlendMode(undefined), 'source-over');
   });
 
-  test('round-trip PSD serialization preserves layers, blend modes, opacity, and composite preview image data', () => {
+  test('round-trip serializePsd -> parsePsd preserves layers, blend modes, opacity, and lock state', () => {
     const width = 64;
     const height = 48;
 
@@ -200,44 +163,43 @@ describe('PSD Utilities & ag-psd Serialization / Deserialization', () => {
       compositeData[i + 3] = 255;
     }
 
-    const psdStructure = {
+    const mockEngine = {
       width,
       height,
-      channels: 4,
-      bitsPerChannel: 8,
-      colorMode: 3,
-      canvas: createMockCanvas(width, height, compositeData),
-      children: [
+      layers: [
         {
           name: 'Background Layer',
           opacity: 1,
-          hidden: false,
-          blendMode: mapBlendModeToPsd('source-over'),
+          visible: true,
+          blendMode: 'source-over',
+          locked: false,
           canvas: createMockCanvas(width, height, layer1Data),
         },
         {
           name: 'Multiply Accent',
           opacity: 0.75,
-          hidden: false,
-          blendMode: mapBlendModeToPsd('multiply'),
+          visible: true,
+          blendMode: 'multiply',
+          locked: true,
           canvas: createMockCanvas(width, height, layer2Data),
         },
       ],
+      getCompositeCanvas: () => createMockCanvas(width, height, compositeData),
     };
 
-    const psdBytes = writePsdUint8Array(psdStructure);
-    assert.ok(psdBytes instanceof Uint8Array);
+    const psdBytes = new Uint8Array(psdMod.serializePsd(mockEngine));
     assert.equal(String.fromCharCode(psdBytes[0], psdBytes[1], psdBytes[2], psdBytes[3]), '8BPS');
 
-    const readDoc = readPsd(psdBytes.buffer, { skipCompositeImageData: false });
-    assert.equal(readDoc.width, width);
-    assert.equal(readDoc.height, height);
-    assert.ok(readDoc.canvas, 'Composite preview canvas must be present on readPsd');
-    assert.equal(readDoc.children.length, 2);
-    assert.equal(readDoc.children[0].name, 'Background Layer');
-    assert.equal(readDoc.children[1].name, 'Multiply Accent');
-    assert.equal(mapPsdToBlendMode(readDoc.children[1].blendMode), 'multiply');
-    assert.ok(Math.abs(readDoc.children[1].opacity - 0.75) < 0.01);
+    const doc = psdMod.parsePsd(psdBytes.buffer);
+    assert.equal(doc.width, width);
+    assert.equal(doc.height, height);
+    assert.equal(doc.layers.length, 2);
+    assert.equal(doc.layers[0].name, 'Background Layer');
+    assert.equal(doc.layers[0].locked, false);
+    assert.equal(doc.layers[1].name, 'Multiply Accent');
+    assert.equal(doc.layers[1].blendMode, 'multiply');
+    assert.equal(doc.layers[1].locked, true);
+    assert.ok(Math.abs(doc.layers[1].opacity - 0.75) < 0.01);
   });
 
   test('flattens nested PSD layer groups recursively during import/leaf collection', async () => {
@@ -296,7 +258,7 @@ describe('PSD Utilities & ag-psd Serialization / Deserialization', () => {
   test('fails fast when given corrupted or truncated PSD buffer', () => {
     const invalidBuffer = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]).buffer;
     assert.throws(() => {
-      readPsd(invalidBuffer);
-    }, /Invalid|signature|header|PSD/i);
+      psdMod.parsePsd(invalidBuffer);
+    }, /Invalid|Failed to parse PSD|signature|header|PSD/i);
   });
 });

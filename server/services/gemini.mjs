@@ -19,55 +19,34 @@ import { GoogleAuth } from 'google-auth-library';
 
 export const DEFAULT_MODEL = 'gemini-3.1-flash-lite-image';
 
-export const SUPPORTED_INPUT_FORMATS = {
-  png: 'image/png',
-  jpeg: 'image/jpeg',
-  jpg: 'image/jpeg',
-  webp: 'image/webp',
-};
-
 export const STYLE_PRESETS = {
-  'auto': 'Creatively interpret this sketch or doodle and bring the concept to life as a polished, beautifully crafted illustration. If the user drew a rough sketch or abstract lines (e.g. a stick figure, rough animal, basic shapes, diagram, or object), recognize what subject is being depicted and render it with appealing professional artistic style, clean geometry, charming expressive character, and vibrant details (for example, rough doodle lines of a cat should become a delightful cartoon cat). Strictly preserve the subject matter, approximate layout, primary colors, and proportions of what is drawn. DO NOT add extraneous backgrounds, scenic environments, or unprompted scene elements that are not present in the user sketch—keep the focus solely on beautifully rendering the drawn subjects themselves. Upgrade the drawing from crude/minimalist to charming, polished, and aesthetically delightful.',
-  'beautify': 'Creatively interpret this sketch or doodle and bring the concept to life as a polished, beautifully crafted illustration. If the user drew a rough sketch or abstract lines (e.g. a stick figure, rough animal, basic shapes, diagram, or object), recognize what subject is being depicted and render it with appealing professional artistic style, clean geometry, charming expressive character, and vibrant details (for example, rough doodle lines of a cat should become a delightful cartoon cat). Strictly preserve the subject matter, approximate layout, primary colors, and proportions of what is drawn. DO NOT add extraneous backgrounds, scenic environments, or unprompted scene elements that are not present in the user sketch—keep the focus solely on beautifully rendering the drawn subjects themselves. Upgrade the drawing from crude/minimalist to charming, polished, and aesthetically delightful.',
-  'apply-notes': 'Carefully inspect this image for visual annotations, drawings, sketches, circled areas, arrows, and written or typed text notes/cues describing edits or modifications. Execute the requested changes and modifications precisely on the underlying scene or subjects, while completely removing all annotations, markings, and note text. Maintain the original art style, composition, lighting, and palette of the image.',
-  'notes': 'Carefully inspect this image for visual annotations, drawings, sketches, circled areas, arrows, and written or typed text notes/cues describing edits or modifications. Execute the requested changes and modifications precisely on the underlying scene or subjects, while completely removing all annotations, markings, and note text. Maintain the original art style, composition, lighting, and palette of the image.',
-  'watercolor': 'Create an expressive, beautiful, artistic watercolour interpretation of this drawing on textured paper. Use soft wet-in-wet watercolor bleeding, delicate pigment pooling, subtle paint splashes, artistic paper textures, and organic brush strokes while honoring the subjects and silhouette.',
-  'banana': 'Create an expressive, beautiful, artistic watercolour interpretation of this drawing. Use soft wet-in-wet watercolor bleeding, delicate pigment pooling, artistic paper textures, and organic brush strokes while honoring the subjects and silhouette.',
-  'concept-art': 'Turn this sketch into a polished, high-resolution digital concept art illustration with cinematic lighting and deep shadows.',
-  'vector': 'Convert this drawing into a sharp, minimalist vector graphic with bold outlines, smooth gradients, and modern palette.',
-  'pixel-art': 'Render this sketch as a clean 16-bit retro pixel art sprite with crisp pixel clusters and nostalgic arcade color palette.',
-  'claymation': 'Render this sketch as a tactile 3D clay model or miniature toy figure with soft studio lighting and depth of field.',
-  '3d-clay': 'Render this sketch as a tactile 3D clay model or miniature toy figure with soft studio lighting and depth of field.',
-  'anime': 'Transform this drawing into a lush, hand-painted anime background scene in the style of classic studio animation.',
-  'sketch': 'Refine this rough drawing into a clean, expressive hand-drawn illustration with crisp ink linework, subtle hatching, and balanced shading.',
-  'realistic': 'Render this sketch as a high-detail photorealistic image with natural studio lighting, accurate materials, and realistic depth of field while preserving the exact composition.',
-  'ui_mockup': 'Transform this wireframe or sketch into a clean, modern application user interface mockup with crisp typography, balanced spacing, and polished UI components while preserving the exact layout.',
-  'diagram': 'Convert this rough drawing into a structured, high-clarity technical architecture or flow diagram with crisp geometric nodes, legible labels, and clean connector arrows.',
-  'icon': 'Convert this drawing into a sharp, minimalist vector-style application icon with balanced geometry, bold outlines, and smooth modern gradients.',
+  beautify:
+    "Imaginatively interpret this sketch or image and bring the underlying concept to life as a vibrant, studio-quality illustration. Look past rough mouse lines, stick figures, or basic geometric shorthand to recognize what the user intends to depict, and flesh it out with rich artistic detail, appealing character design, natural structure, depth, and expressive lighting (for example, turn a stick figure into a lively, fully realized character in that exact pose, or a rough doodle of a cat into a charming, detailed illustrated cat). Stay faithfully anchored to the user's subjects, spatial layout, poses, and chosen color palette without tracing crude geometry literally or inventing unrelated scene elements.",
+  'apply-notes':
+    "Carefully inspect this image for visual annotations, including redlines, arrows, circled regions, rough sketched additions, and handwritten or typed text notes describing edits. Interpret the creative intent behind both the written instructions and any rough sketched-in shapes, seamlessly integrating the requested changes with full artistic detail that matches the surrounding artwork's style, lighting, perspective, and palette. Completely remove all annotation text, arrows, circles, and markup lines from the final result.",
+  watercolor:
+    "Re-imagine and paint this sketch or image as an expressive, gallery-quality watercolor artwork on textured cold-press paper. Translate crude outlines or shorthand shapes into organic, artfully constructed forms rendered with luminous wet-on-wet washes, natural pigment granulation, delicate color bleeding, intentional unpainted paper highlights, and lively brushwork. Faithfully preserve the user's depicted subjects, poses, spatial composition, and color cues rather than painting an unrelated scene.",
+  'concept-art':
+    "Elevate this sketch or image into a richly detailed digital concept art illustration suitable for a feature film or AAA game production. Interpret rough shapes, stick figures, or block-outs as thumbnail storyboards, fleshing them out with believable anatomy, intricate material textures, atmospheric perspective, volumetric lighting, and dramatic rim highlights. Keep the composition, subjects, poses, and key color cues anchored to the user's drawing so the result feels like a master concept artist's finished painting of the exact same scene.",
+  vector:
+    "Redesign and polish this sketch or image into a crisp, modern vector illustration with clean geometric construction, intentional curves, bold balanced linework, and vibrant flat-to-gradient colorblocking. Do not literally trace wobbly or jagged hand-drawn strokes; instead, reconstruct the depicted subjects with professional graphic design precision, pleasing proportions, and iconic visual clarity while faithfully preserving the subject matter, pose, layout, and color scheme.",
+  'pixel-art':
+    "Re-imagine and craft this sketch or image as authentic 16-bit era pixel art with deliberate pixel cluster placement, clean hand-pixelled outlines, selective dithering, and a cohesive arcade color palette. Translate rough doodles or stick figures into charming, expressive game sprites or pixel scenes with readable silhouettes and rich pixel-level detail, rather than merely downsampling or pixelating the raw strokes. Preserve the user's subjects, poses, layout, and primary colors.",
+  '3d-clay':
+    "Sculpt and render the subjects in this sketch or image as a charming, tactile 3D stop-motion claymation diorama or handcrafted polymer clay miniature. Interpret rough 2D shorthand or stick figures as fully sculpted, volumetric 3D characters and objects with rounded forms, subtle fingerprint and tool textures, soft subsurface scattering, warm studio key lighting, and shallow miniature depth of field. Preserve the exact subjects, poses, spatial arrangement, and color palette from the user's drawing.",
+  anime:
+    "Polish and re-imagine this sketch, drawing, or image as a high-quality Japanese anime illustration with crisp, dynamic ink linework, vibrant cel-shading, clean multi-tone shadow planes, and classic anime specular highlights. Look past rough sketch lines or stick-figure shorthand to construct appealing anime character anatomy, expressive eyes, flowing hair and fabric folds, or richly detailed anime props and environments as appropriate to what is drawn. Strictly preserve the user's subject matter, pose, spatial layout, and primary color cues without replacing the subject with an unprompted background scene.",
 };
 
-function validateDimension(value, name) {
-  if (
-    typeof value !== 'number' ||
-    !Number.isFinite(value) ||
-    !Number.isInteger(value) ||
-    value < 1 ||
-    value > 4096
-  ) {
-    throw new Error(
-      `Invalid ${name} "${value}": must be a finite integer between 1 and 4096.`
-    );
-  }
-}
+const SYSTEM_INSTRUCTION =
+  "You are an imaginative master digital artist and visual development illustrator. When given a rough sketch, doodle, or image, look past crude mouse-drawn lines or stick-figure shorthand to understand the underlying concept and creative intent. Re-imagine and flesh out symbolic sketches into rich, believable, artfully constructed subjects with proper anatomy, structure, volume, and detail, while staying faithfully anchored to the user's subjects, poses, spatial layout, and intentional color cues. Never merely trace wobbly lines with a surface filter, and never ignore the user's drawing to hallucinate unrelated scenes.";
 
-export function parseImageHeader(buf) {
-  if (!Buffer.isBuffer(buf) || buf.length < 16) {
-    throw new Error('Failed to decode input canvas image: buffer is too small or corrupted.');
+export function detectImageMimeType(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) {
+    throw new Error('Invalid image data: buffer is empty or corrupted.');
   }
 
-  // PNG: 89 50 4E 47 0D 0A 1A 0A + IHDR chunk
   if (
-    buf.length >= 24 &&
     buf[0] === 0x89 &&
     buf[1] === 0x50 &&
     buf[2] === 0x4e &&
@@ -77,79 +56,22 @@ export function parseImageHeader(buf) {
     buf[6] === 0x1a &&
     buf[7] === 0x0a
   ) {
-    const width = buf.readUInt32BE(16);
-    const height = buf.readUInt32BE(20);
-    return { format: 'png', mimeType: 'image/png', width, height };
+    return 'image/png';
   }
 
-  // JPEG: FF D8
   if (buf[0] === 0xff && buf[1] === 0xd8) {
-    let offset = 2;
-    while (offset + 9 < buf.length) {
-      if (buf[offset] !== 0xff) {
-        offset++;
-        continue;
-      }
-      const marker = buf[offset + 1];
-      if (marker === 0xff) {
-        offset++;
-        continue;
-      }
-      if (
-        marker === 0xd8 ||
-        marker === 0xd9 ||
-        (marker >= 0xd0 && marker <= 0xd7) ||
-        marker === 0x01
-      ) {
-        offset += 2;
-        continue;
-      }
-      const segLength = buf.readUInt16BE(offset + 2);
-      if (segLength < 2 || offset + 2 + segLength > buf.length) {
-        break;
-      }
-      const isSof =
-        (marker >= 0xc0 && marker <= 0xc3) ||
-        (marker >= 0xc5 && marker <= 0xc7) ||
-        (marker >= 0xc9 && marker <= 0xcb) ||
-        (marker >= 0xcd && marker <= 0xcf);
-      if (isSof && offset + 9 <= buf.length) {
-        const height = buf.readUInt16BE(offset + 5);
-        const width = buf.readUInt16BE(offset + 7);
-        return { format: 'jpeg', mimeType: 'image/jpeg', width, height };
-      }
-      offset += 2 + segLength;
-    }
-    throw new Error('Failed to decode JPEG dimensions: missing SOF marker.');
+    return 'image/jpeg';
   }
 
-  // WebP: RIFF....WEBP
   if (
-    buf.length >= 30 &&
     buf.toString('ascii', 0, 4) === 'RIFF' &&
     buf.toString('ascii', 8, 12) === 'WEBP'
   ) {
-    const chunkType = buf.toString('ascii', 12, 16);
-    if (chunkType === 'VP8 ') {
-      const width = buf.readUInt16LE(26) & 0x3fff;
-      const height = buf.readUInt16LE(28) & 0x3fff;
-      return { format: 'webp', mimeType: 'image/webp', width, height };
-    }
-    if (chunkType === 'VP8L') {
-      const bits = buf.readUInt32LE(21);
-      const width = (bits & 0x3fff) + 1;
-      const height = ((bits >> 14) & 0x3fff) + 1;
-      return { format: 'webp', mimeType: 'image/webp', width, height };
-    }
-    if (chunkType === 'VP8X') {
-      const width = 1 + buf.readUIntLE(24, 3);
-      const height = 1 + buf.readUIntLE(27, 3);
-      return { format: 'webp', mimeType: 'image/webp', width, height };
-    }
+    return 'image/webp';
   }
 
   throw new Error(
-    `Unsupported input image format. Supported formats are: ${Object.keys(SUPPORTED_INPUT_FORMATS).join(', ')}.`
+    'Unsupported input image format. Supported formats are: png, jpeg, webp.'
   );
 }
 
@@ -166,77 +88,26 @@ function extractBase64Payload(image) {
   if (trimmed.startsWith('data:')) {
     const commaIndex = trimmed.indexOf(',');
     if (commaIndex === -1) {
-      throw new Error(
-        'Invalid data URL in "image": missing comma separator in data URL.'
-      );
+      throw new Error('Invalid data URL in "image": missing comma separator.');
     }
-    const header = trimmed.slice(0, commaIndex);
-    if (!header.includes(';base64')) {
-      throw new Error(
-        'Invalid data URL in "image": data URL must be base64-encoded.'
-      );
+    if (!trimmed.slice(0, commaIndex).includes(';base64')) {
+      throw new Error('Invalid data URL in "image": must be base64-encoded.');
     }
     rawBase64 = trimmed.slice(commaIndex + 1);
   } else if (trimmed.includes(',')) {
     throw new Error(
-      'Invalid "image" string: unexpected comma in raw base64 payload without "data:" prefix.'
+      'Invalid "image" string: unexpected comma without "data:" prefix.'
     );
   }
 
   const cleanBase64 = rawBase64.replace(/\s+/g, '');
   if (!cleanBase64 || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(cleanBase64)) {
-    throw new Error(
-      'Invalid "image" in AI refinement request: payload is not valid base64 data.'
-    );
+    throw new Error('Invalid "image" in AI refinement request: not valid base64 data.');
   }
 
   return cleanBase64;
 }
 
-/**
- * Detects Gemini API Key or Vertex AI Application Default Credentials (ADC) status.
- *
- * @param {object} [options={}]
- * @returns {Promise<{ hasApiKey: boolean, hasGoogleCloudProject: boolean, googleCloudProject: string, googleCloudLocation: string, authMode: string }>}
- */
-export async function detectAuthStatus(options = {}) {
-  const service = new GeminiRefineService(options);
-  const apiKey = service.resolveApiKey();
-  if (apiKey) {
-    return {
-      hasApiKey: true,
-      hasGoogleCloudProject: false,
-      googleCloudProject: '',
-      googleCloudLocation: service.location,
-      authMode: 'api-key',
-    };
-  }
-  const project = await service.resolveProject();
-  return {
-    hasApiKey: false,
-    hasGoogleCloudProject: true,
-    googleCloudProject: project,
-    googleCloudLocation: service.location,
-    authMode: 'vertex-adc',
-  };
-}
-
-/**
- * Instantiates a GoogleGenAI client authenticated via Gemini API Key or Vertex AI ADC.
- * Fails fast if neither an API key nor Vertex AI ADC / Google Cloud Project can be resolved.
- *
- * @param {object} [options={}]
- * @param {object} [config={}]
- * @returns {Promise<GoogleGenAI>}
- */
-export async function getGoogleGenAIClient(options = {}, config = {}) {
-  const service = new GeminiRefineService({ ...config, ...options });
-  return service.getClient();
-}
-
-/**
- * Service class for Gemini AI Image Refinement using a Gemini API Key or Vertex AI ADC.
- */
 export class GeminiRefineService {
   constructor(options = {}) {
     this.apiKey =
@@ -257,128 +128,76 @@ export class GeminiRefineService {
     this.model = options.model || process.env.MODEL || DEFAULT_MODEL;
     this.auth = options.auth || null;
     this.client = options.client || null;
+    this.timeoutMs = options.timeoutMs ?? 90000;
   }
 
-  /**
-   * Resolves a Gemini API Key via instance configuration or environment (GEMINI_API_KEY / GOOGLE_API_KEY).
-   * Returns an empty string when authMode is explicitly set to 'vertex-adc' or no key is configured.
-   *
-   * @returns {string}
-   */
-  resolveApiKey() {
-    if (this.authMode === 'vertex-adc') {
-      return '';
-    }
-    const rawKey =
-      this.apiKey ||
-      process.env.GEMINI_API_KEY ||
-      process.env.GOOGLE_API_KEY ||
-      '';
-    const apiKey = typeof rawKey === 'string' ? rawKey.trim() : '';
-    if (this.authMode === 'api-key' && !apiKey) {
-      throw new Error(
-        'Authentication failed: Gemini API key is required when authMode is "api-key" (set GEMINI_API_KEY or GOOGLE_API_KEY).'
-      );
-    }
-    return apiKey;
-  }
-
-  /**
-   * Resolves the Google Cloud Project ID via instance configuration, environment, or Vertex AI ADC.
-   * Throws a descriptive fail-fast error if project resolution fails.
-   *
-   * @returns {Promise<string>}
-   */
-  async resolveProject() {
-    let authError = null;
-    let project =
-      this.project ||
-      process.env.GOOGLE_CLOUD_PROJECT ||
-      process.env.GCLOUD_PROJECT ||
-      '';
-
-    if (typeof project === 'string') {
-      project = project.trim();
-    }
-
-    if (!project) {
-      try {
-        const auth = this.auth || new GoogleAuth();
-        const detectedProject = await auth.getProjectId();
-        project = typeof detectedProject === 'string' ? detectedProject.trim() : '';
-      } catch (err) {
-        authError = err;
-      }
-    }
-
-    if (!project) {
-      const errorDetail = authError?.message
-        ? ` Underlying error: ${authError.message}`
-        : ' No project ID was returned by Application Default Credentials.';
-      throw new Error(
-        'Authentication failed: Set GEMINI_API_KEY (Google AI Studio) or configure Vertex AI Application Default Credentials (ADC) with a Google Cloud Project ' +
-        '(set via GOOGLE_CLOUD_PROJECT or `gcloud config set project <ID>`).' +
-        errorDetail
-      );
-    }
-
-    this.project = project;
-    return project;
-  }
-
-  /**
-   * Returns a cached GoogleGenAI client instance (API Key or Vertex AI ADC), initializing it on first use.
-   *
-   * @returns {Promise<GoogleGenAI>}
-   */
   async getClient() {
     if (this.client) {
       return this.client;
     }
 
-    const apiKey = this.resolveApiKey();
+    const rawKey =
+      this.authMode === 'vertex-adc'
+        ? ''
+        : this.apiKey ||
+          process.env.GEMINI_API_KEY ||
+          process.env.GOOGLE_API_KEY ||
+          '';
+    const apiKey = typeof rawKey === 'string' ? rawKey.trim() : '';
+
+    if (this.authMode === 'api-key' && !apiKey) {
+      throw new Error(
+        'Authentication failed: Gemini API key is required when authMode is "api-key" (set GEMINI_API_KEY or GOOGLE_API_KEY).'
+      );
+    }
+
     if (apiKey) {
       this.apiKey = apiKey;
       this.client = new GoogleGenAI({ apiKey });
       return this.client;
     }
 
-    const project = await this.resolveProject();
-    const location =
-      (this.location || process.env.GOOGLE_CLOUD_LOCATION || 'global').trim() ||
-      'global';
+    let authError = null;
+    let project = String(
+      this.project ||
+        process.env.GOOGLE_CLOUD_PROJECT ||
+        process.env.GCLOUD_PROJECT ||
+        ''
+    ).trim();
 
+    if (!project) {
+      try {
+        const auth = this.auth || new GoogleAuth();
+        project = String((await auth.getProjectId()) || '').trim();
+      } catch (err) {
+        authError = err;
+      }
+    }
+
+    if (!project) {
+      const detail = authError?.message
+        ? ` Underlying error: ${authError.message}`
+        : ' No project ID was returned by Application Default Credentials.';
+      throw new Error(
+        'Authentication failed: Set GEMINI_API_KEY (Google AI Studio) or configure Vertex AI Application Default Credentials (ADC) with a Google Cloud Project ' +
+          '(set via GOOGLE_CLOUD_PROJECT or `gcloud config set project <ID>`).' +
+          detail
+      );
+    }
+
+    this.project = project;
+    const location = String(this.location || 'global').trim() || 'global';
     this.location = location;
-    this.client = new GoogleGenAI({
-      vertexai: true,
-      project,
-      location,
-    });
-
+    this.client = new GoogleGenAI({ vertexai: true, project, location });
     return this.client;
   }
 
-  /**
-   * Refines a canvas image using Gemini image models over Gemini API Key or Vertex AI ADC.
-   *
-   * @param {object} params
-   * @param {string} params.image Base64 string or data URL of the canvas image
-   * @param {string} [params.prompt=''] Custom user prompt
-   * @param {string} [params.stylePreset=''] Style preset key from STYLE_PRESETS
-   * @param {number} [params.width] Optional target width (1..4096)
-   * @param {number} [params.height] Optional target height (1..4096)
-   * @param {string} [params.model] Optional model override
-   * @param {string} [params.scope] Optional layer scope ('composite' | 'active-layer')
-   * @returns {Promise<{ success: boolean, modelUsed: string, mimeType: string, imageBase64: string, image: string, width: number, height: number }>}
-   */
   async refineImage({
     image,
     prompt = '',
     stylePreset = '',
-    width,
-    height,
     model,
-    scope,
+    timeoutMs,
   } = {}) {
     const cleanBase64 = extractBase64Payload(image);
 
@@ -400,71 +219,40 @@ export class GeminiRefineService {
       normalizedPreset &&
       !Object.prototype.hasOwnProperty.call(STYLE_PRESETS, normalizedPreset)
     ) {
-      const validPresets = Object.keys(STYLE_PRESETS).join(', ');
       throw new Error(
-        `Invalid stylePreset "${stylePreset}". Valid style presets are: ${validPresets}`
+        `Invalid stylePreset "${stylePreset}". Valid style presets are: ${Object.keys(STYLE_PRESETS).join(', ')}`
       );
     }
 
     if (!normalizedPreset && !normalizedPrompt) {
-      throw new Error('Either stylePreset or prompt must be provided for image refinement.');
+      throw new Error(
+        'Invalid refine request: either "stylePreset" or "prompt" is required.'
+      );
     }
 
-    if (width !== undefined && width !== null) {
-      validateDimension(width, 'width');
-    }
-    if (height !== undefined && height !== null) {
-      validateDimension(height, 'height');
-    }
-
-    const inputBuffer = Buffer.from(cleanBase64, 'base64');
-    const inputMetadata = parseImageHeader(inputBuffer);
-    const inputMimeType = inputMetadata.mimeType;
-
-    validateDimension(inputMetadata.width, 'input image width');
-    validateDimension(inputMetadata.height, 'input image height');
-
-    const targetWidth = width ?? inputMetadata.width;
-    const targetHeight = height ?? inputMetadata.height;
-
-    validateDimension(targetWidth, 'width');
-    validateDimension(targetHeight, 'height');
-
-    const rawModel = model !== undefined && model !== null ? model : (this.model || DEFAULT_MODEL);
+    const inputMimeType = detectImageMimeType(Buffer.from(cleanBase64, 'base64'));
+    const rawModel = model ?? this.model ?? DEFAULT_MODEL;
     if (typeof rawModel !== 'string' || !/^[a-zA-Z0-9._-]{1,128}$/.test(rawModel.trim())) {
       throw new Error(`Invalid model identifier "${String(rawModel)}".`);
     }
+
     const activeModel = rawModel.trim();
     const presetPrompt = normalizedPreset ? STYLE_PRESETS[normalizedPreset] : '';
+    const finalPrompt =
+      presetPrompt && normalizedPrompt
+        ? `${presetPrompt}\n\nAdditional user instructions: ${normalizedPrompt}`
+        : presetPrompt || normalizedPrompt;
 
-    let finalPrompt = '';
-    if (presetPrompt && normalizedPrompt) {
-      finalPrompt = `${presetPrompt}\n\nAdditional user instructions: ${normalizedPrompt}`;
-    } else if (presetPrompt) {
-      finalPrompt = presetPrompt;
-    } else {
-      finalPrompt = normalizedPrompt;
-    }
-
-    if (scope === 'active-layer') {
-      finalPrompt +=
-        '\n\nNote: This is an isolated artwork layer. Maintain transparent or clean boundaries where appropriate.';
-    }
-
+    const effectiveTimeoutMs = timeoutMs ?? this.timeoutMs;
     const ai = await this.getClient();
-
-    console.log(
-      `[GeminiRefine] Invoking model "${activeModel}" (input: ${inputMimeType}, target: ${targetWidth}x${targetHeight})...`
-    );
-
     const abortController = new AbortController();
     let timeoutId = null;
 
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => {
         abortController.abort();
-        reject(new Error('AI refine request timed out after 90 seconds.'));
-      }, 90000);
+        reject(new Error(`AI refine request timed out after ${effectiveTimeoutMs}ms.`));
+      }, effectiveTimeoutMs);
     });
 
     let response;
@@ -475,27 +263,18 @@ export class GeminiRefineService {
           {
             role: 'user',
             parts: [
-              {
-                inlineData: {
-                  mimeType: inputMimeType,
-                  data: cleanBase64,
-                },
-              },
-              {
-                text: finalPrompt,
-              },
+              { inlineData: { mimeType: inputMimeType, data: cleanBase64 } },
+              { text: finalPrompt },
             ],
           },
         ],
         config: {
           responseModalities: ['IMAGE'],
-          systemInstruction:
-            'You are a master digital artist and illustrator. Your task is to take the provided user sketch/image and produce a refined, polished artwork layer matching the instructions.',
+          systemInstruction: SYSTEM_INSTRUCTION,
           temperature: 0.7,
           abortSignal: abortController.signal,
         },
       });
-
       response = await Promise.race([generatePromise, timeoutPromise]);
     } finally {
       if (timeoutId !== null) {
@@ -506,67 +285,20 @@ export class GeminiRefineService {
     const blockReason = response?.promptFeedback?.blockReason ?? null;
     const candidate = response?.candidates?.[0] ?? null;
     const finishReason = candidate?.finishReason ?? null;
-    const safetyRatings =
-      candidate?.safetyRatings ?? response?.promptFeedback?.safetyRatings ?? [];
-    const parts = Array.isArray(candidate?.content?.parts)
-      ? candidate.content.parts
-      : [];
-
-    let generatedBase64 = null;
-    let outputMimeType = 'image/png';
-    for (const part of parts) {
-      if (part?.inlineData?.data) {
-        generatedBase64 = part.inlineData.data;
-        if (typeof part.inlineData.mimeType === 'string' && part.inlineData.mimeType.trim()) {
-          outputMimeType = part.inlineData.mimeType.trim();
-        }
-        break;
-      }
-    }
-
-    const textPart =
-      parts
-        .filter((p) => typeof p?.text === 'string' && p.text.trim())
-        .map((p) => p.text.trim())
-        .join(' ') || null;
-
+    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+    const imagePart = parts.find((p) => p?.inlineData?.data);
     const hasInvalidFinishReason =
-      candidate?.finishReason !== undefined && candidate.finishReason !== 'STOP';
+      finishReason !== null && finishReason !== undefined && finishReason !== 'STOP';
 
-    if (blockReason || !candidate || hasInvalidFinishReason || !generatedBase64) {
+    if (blockReason || !candidate || hasInvalidFinishReason || !imagePart) {
       throw new Error(
-        `Gemini image refinement failed: ` +
-        `model="${activeModel}", ` +
-        `finishReason="${finishReason ?? 'NONE'}", ` +
-        `blockReason="${blockReason ?? 'NONE'}", ` +
-        `safetyRatings=${JSON.stringify(safetyRatings)}, ` +
-        `text="${textPart ?? 'None'}"`
+        `Gemini image refinement failed: model="${activeModel}", finishReason="${finishReason ?? 'NONE'}", blockReason="${blockReason ?? 'NONE'}"`
       );
     }
 
-    const outputBase64 = generatedBase64.replace(/\s+/g, '');
-    const dataUrl = `data:${outputMimeType};base64,${outputBase64}`;
-
     return {
-      success: true,
-      modelUsed: activeModel,
-      mimeType: outputMimeType,
-      imageBase64: dataUrl,
-      image: outputBase64,
-      width: targetWidth,
-      height: targetHeight,
+      image: imagePart.inlineData.data.replace(/\s+/g, ''),
+      mimeType: imagePart.inlineData.mimeType?.trim() || 'image/png',
     };
   }
-
-  async getAuthStatus() {
-    return detectAuthStatus({
-      apiKey: this.apiKey,
-      authMode: this.authMode,
-      project: this.project,
-      location: this.location,
-      model: this.model,
-      auth: this.auth,
-    });
-  }
 }
-

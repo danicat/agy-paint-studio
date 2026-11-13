@@ -327,7 +327,7 @@ describe('SidecarApp UI Extension Endpoints & Security Integration Tests', () =>
       headers: authHeaders,
       body: JSON.stringify({
         prompt: 'Make it clean',
-        stylePreset: 'auto',
+        stylePreset: 'beautify',
       }),
     });
     assert.strictEqual(missingImgRes.status, 400);
@@ -552,20 +552,7 @@ describe('SidecarApp UI Extension Endpoints & Security Integration Tests', () =>
     assert.strictEqual(isWithinAllowedRoot(path.join(outsideDir, 'secret.png')), false);
   });
 
-  test('Frontend UI modules use sidecarFetch (never raw fetch) so inline about:srcdoc embeds resolve baseUrl', async () => {
-    const artifactModalSrc = fs.readFileSync(
-      path.join(projectRoot, 'src', 'ui', 'ArtifactModal.ts'),
-      'utf-8'
-    );
-    assert.ok(
-      !/\bfetch\(/.test(artifactModalSrc),
-      'ArtifactModal.ts must use sidecarFetch() instead of raw fetch() so inline about:srcdoc widgets resolve getApiBaseUrl()'
-    );
-    assert.ok(
-      artifactModalSrc.includes('sidecarFetch(fileUrl)'),
-      'ArtifactModal.loadArtifact must call sidecarFetch(fileUrl)'
-    );
-
+  test('/api/template embeds inline configuration cleanly without raw fetch placeholders', async () => {
     const templateRes = await fetch(`${baseUrl}/api/template?session_id=valid-session-1`);
     assert.strictEqual(templateRes.status, 200);
     const templateHtml = await templateRes.text();

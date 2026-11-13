@@ -17,7 +17,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { SidecarApp, Response } from 'sidecar_sdk';
-import { GeminiRefineService, STYLE_PRESETS } from './services/gemini.mjs';
+import { GeminiRefineService } from './services/gemini.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -338,13 +338,79 @@ function scanConversationMedia(sessionDir) {
   return results.sort((a, b) => b.modifiedTime - a.modifiedTime);
 }
 
-export function getConfig() {
+function decodeBase64Payload(payload) {
+  if (!payload || typeof payload !== 'string' || !payload.trim()) {
+    throw createHttpError(
+      'Missing or invalid "data" payload. Expected non-empty base64 string.',
+      400
+    );
+  }
+  const rawBase64 = payload.includes(',') ? payload.split(',')[1] : payload;
+  return Buffer.from(rawBase64, 'base64');
+}
+
+function expandFsInputPath(rawPath, homeDir, { allowFileUri = false } = {}) {
+  const trimmed = rawPath.trim();
+  if (trimmed === '~') return homeDir;
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return path.join(homeDir, trimmed.slice(2));
+  }
+  if (allowFileUri && trimmed.startsWith('file://')) {
+    return fileURLToPath(trimmed);
+  }
+  return trimmed;
+}
+
+function resolveSafeSessionPath(sessionDir, filename) {
+  const targetPath = path.resolve(sessionDir, filename);
+  if (targetPath !== sessionDir && !targetPath.startsWith(sessionDir + path.sep)) {
+    throw createHttpError(
+      'Access denied: path traversal attempt outside session directory.',
+      400
+    );
+  }
   return {
-    apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '',
-    googleCloudProject: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || '',
-    location: process.env.GOOGLE_CLOUD_LOCATION || 'global',
-    model: process.env.MODEL || 'gemini-3.1-flash-lite-image',
+    targetPath,
+    realSessionDir: fs.realpathSync(sessionDir),
   };
+}
+
+function validateFsTargetPath(targetPath, homeDir, data, { forbidAllSystemGenerated = false } = {}) {
+  const ext = path.extname(targetPath).toLowerCase();
+  if (!ALLOWED_ARTIFACT_EXTENSIONS.has(ext)) {
+    throw createHttpError(
+      `Unsupported file extension "${ext}". Allowed extensions: ${Array.from(ALLOWED_ARTIFACT_EXTENSIONS).join(', ')}.`,
+      400
+    );
+  }
+
+  const segments = targetPath.split(path.sep);
+  const sysGenIdx = segments.indexOf('.system_generated');
+  if (sysGenIdx !== -1) {
+    if (forbidAllSystemGenerated) {
+      throw createHttpError(
+        'Access denied: writing into ".system_generated" is forbidden.',
+        400
+      );
+    }
+    const nextSeg = segments[sysGenIdx + 1];
+    if (nextSeg === 'logs' || nextSeg === 'messages') {
+      throw createHttpError(
+        'Access denied: reading internal logs or messages from ".system_generated" is forbidden.',
+        400
+      );
+    }
+  }
+
+  const { isWithinAllowedRoot } = buildAllowedFilesystemRoots(homeDir, data);
+  if (!isWithinAllowedRoot(targetPath)) {
+    throw createHttpError(
+      `Access denied: target path "${targetPath}" must be within your home, workspace, or temp directory.`,
+      403
+    );
+  }
+
+  return { ext, isWithinAllowedRoot };
 }
 
 function parseWorkspaceUri(uri) {
@@ -467,52 +533,25 @@ export function createSidecarApp() {
   // ---------------------------------------------------------------------------
   // Static Pages & Assets (re-read from disk on each request)
   // ---------------------------------------------------------------------------
-  const serveIndexHtml = () => {
-    const indexPath = path.join(distPath, 'index.html');
-    if (!fs.existsSync(indexPath)) {
+  const serveDistFile = (filename, contentType) => () => {
+    const filePath = path.join(distPath, filename);
+    if (!fs.existsSync(filePath)) {
       throw createHttpError(
-        `Built frontend index.html not found at "${indexPath}". Run "npm run build" first.`,
+        `Built frontend ${filename} not found at "${filePath}". Run "npm run build" first.`,
         500
       );
     }
-    return new Response(fs.readFileSync(indexPath, 'utf-8'), {
-      contentType: 'text/html; charset=utf-8',
+    return new Response(fs.readFileSync(filePath, 'utf-8'), {
+      contentType,
       headers: { 'Cache-Control': 'no-store' },
     });
   };
 
-  const serveAppJs = () => {
-    const jsPath = path.join(distPath, 'app.js');
-    if (!fs.existsSync(jsPath)) {
-      throw createHttpError(
-        `Built frontend app.js not found at "${jsPath}". Run "npm run build" first.`,
-        500
-      );
-    }
-    return new Response(fs.readFileSync(jsPath, 'utf-8'), {
-      contentType: 'application/javascript; charset=utf-8',
-      headers: { 'Cache-Control': 'no-store' },
-    });
-  };
-
-  const serveStylesCss = () => {
-    const cssPath = path.join(distPath, 'styles.css');
-    if (!fs.existsSync(cssPath)) {
-      throw createHttpError(
-        `Built frontend styles.css not found at "${cssPath}". Run "npm run build" first.`,
-        500
-      );
-    }
-    return new Response(fs.readFileSync(cssPath, 'utf-8'), {
-      contentType: 'text/css; charset=utf-8',
-      headers: { 'Cache-Control': 'no-store' },
-    });
-  };
-
+  const serveIndexHtml = serveDistFile('index.html', 'text/html; charset=utf-8');
   app.page('/', serveIndexHtml);
   app.page('/index.html', serveIndexHtml);
-  app.page('/app.js', serveAppJs);
-  app.api('/styles.css', serveStylesCss, 'GET');
+  app.page('/app.js', serveDistFile('app.js', 'application/javascript; charset=utf-8'));
+  app.api('/styles.css', serveDistFile('styles.css', 'text/css; charset=utf-8'), 'GET');
 
   app.api(
     '/assets/logo.svg',
@@ -605,15 +644,7 @@ export function createSidecarApp() {
         allowReadSystemGeneratedMedia: true,
       });
 
-      const targetPath = path.resolve(sessionDir, filename);
-      const realSessionDir = fs.realpathSync(sessionDir);
-
-      if (targetPath !== sessionDir && !targetPath.startsWith(sessionDir + path.sep)) {
-        throw createHttpError(
-          'Access denied: path traversal attempt outside session directory.',
-          400
-        );
-      }
+      const { targetPath, realSessionDir } = resolveSafeSessionPath(sessionDir, filename);
 
       const lstat = fs.lstatSync(targetPath, { throwIfNoEntry: false });
       if (!lstat) {
@@ -663,27 +694,12 @@ export function createSidecarApp() {
     withErrorHandling((data) => {
       const sessionId = data.session_id || data.sessionId;
       const filename = data.filename || data.path;
-      const payload = data.data ?? data.image;
+      const buffer = decodeBase64Payload(data.data ?? data.image);
 
       const sessionDir = resolveSessionBrainDir(sessionId);
       validateArtifactRelativePath(filename);
 
-      if (!payload || typeof payload !== 'string' || !payload.trim()) {
-        throw createHttpError(
-          'Missing or invalid "data" in save artifact request. Expected non-empty base64 string.',
-          400
-        );
-      }
-
-      const targetPath = path.resolve(sessionDir, filename);
-      if (targetPath !== sessionDir && !targetPath.startsWith(sessionDir + path.sep)) {
-        throw createHttpError(
-          'Access denied: path traversal attempt outside session directory.',
-          400
-        );
-      }
-
-      const realSessionDir = fs.realpathSync(sessionDir);
+      const { targetPath, realSessionDir } = resolveSafeSessionPath(sessionDir, filename);
       const targetDir = path.dirname(targetPath);
 
       let existingAncestor = targetDir;
@@ -737,10 +753,7 @@ export function createSidecarApp() {
         }
       }
 
-      const rawBase64 = payload.includes(',') ? payload.split(',')[1] : payload;
-      const buffer = Buffer.from(rawBase64, 'base64');
       fs.writeFileSync(targetPath, buffer);
-
       return { success: true, filename, path: targetPath };
     }),
     'POST'
@@ -786,25 +799,9 @@ export function createSidecarApp() {
   app.api(
     '/api/fs/save',
     withErrorHandling((data) => {
-      const { directory, filename, filePath, workspaceUris } = data;
-      const payload = data.data ?? data.image;
-
-      if (!payload || typeof payload !== 'string' || !payload.trim()) {
-        throw createHttpError(
-          'Missing or invalid "data" in filesystem save request. Expected non-empty base64 string.',
-          400
-        );
-      }
-
+      const { directory, filename, filePath } = data;
+      const buffer = decodeBase64Payload(data.data ?? data.image);
       const homeDir = os.homedir();
-      const expandTilde = (p) => {
-        const trimmed = p.trim();
-        if (trimmed === '~') return homeDir;
-        if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
-          return path.join(homeDir, trimmed.slice(2));
-        }
-        return trimmed;
-      };
 
       let targetPath;
       if (
@@ -828,13 +825,12 @@ export function createSidecarApp() {
         if (directory.includes('\0')) {
           throw createHttpError('Invalid directory path: null byte detected.', 400);
         }
-        const resolvedDir = path.resolve(expandTilde(directory));
-        targetPath = path.join(resolvedDir, filename.trim());
+        targetPath = path.join(path.resolve(expandFsInputPath(directory, homeDir)), filename.trim());
       } else if (typeof filePath === 'string' && filePath.trim()) {
         if (filePath.includes('\0')) {
           throw createHttpError('Invalid filePath: null byte detected.', 400);
         }
-        targetPath = path.resolve(expandTilde(filePath));
+        targetPath = path.resolve(expandFsInputPath(filePath, homeDir));
       } else {
         throw createHttpError(
           'Missing target location: provide either ("directory" and "filename") or "filePath".',
@@ -842,30 +838,9 @@ export function createSidecarApp() {
         );
       }
 
-      const ext = path.extname(targetPath).toLowerCase();
-      if (!ALLOWED_ARTIFACT_EXTENSIONS.has(ext)) {
-        throw createHttpError(
-          `Unsupported file extension "${ext}". Allowed extensions: ${Array.from(ALLOWED_ARTIFACT_EXTENSIONS).join(', ')}.`,
-          400
-        );
-      }
-
-      const normalizedSegments = targetPath.split(path.sep);
-      if (normalizedSegments.includes('.system_generated')) {
-        throw createHttpError(
-          'Access denied: writing into ".system_generated" is forbidden.',
-          400
-        );
-      }
-
-      const { isWithinAllowedRoot } = buildAllowedFilesystemRoots(homeDir, data);
-
-      if (!isWithinAllowedRoot(targetPath)) {
-        throw createHttpError(
-          `Access denied: target path "${targetPath}" must be within your home, workspace, or temp directory.`,
-          403
-        );
-      }
+      const { isWithinAllowedRoot } = validateFsTargetPath(targetPath, homeDir, data, {
+        forbidAllSystemGenerated: true,
+      });
 
       const targetDir = path.dirname(targetPath);
       if (!fs.existsSync(targetDir)) {
@@ -890,10 +865,7 @@ export function createSidecarApp() {
         }
       }
 
-      const rawBase64 = payload.includes(',') ? payload.split(',')[1] : payload;
-      const buffer = Buffer.from(rawBase64, 'base64');
       fs.writeFileSync(targetPath, buffer);
-
       return {
         success: true,
         filename: path.basename(targetPath),
@@ -917,48 +889,8 @@ export function createSidecarApp() {
       }
 
       const homeDir = os.homedir();
-      const expandTilde = (p) => {
-        const trimmed = p.trim();
-        if (trimmed === '~') return homeDir;
-        if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
-          return path.join(homeDir, trimmed.slice(2));
-        }
-        if (trimmed.startsWith('file://')) {
-          return fileURLToPath(trimmed);
-        }
-        return trimmed;
-      };
-
-      const targetPath = path.resolve(expandTilde(rawFile));
-      const ext = path.extname(targetPath).toLowerCase();
-      if (!ALLOWED_ARTIFACT_EXTENSIONS.has(ext)) {
-        throw createHttpError(
-          `Unsupported file extension "${ext}". Allowed extensions: ${Array.from(ALLOWED_ARTIFACT_EXTENSIONS).join(', ')}.`,
-          400
-        );
-      }
-
-      const normalizedSegments = targetPath.split(path.sep);
-      const sysGenIdx = normalizedSegments.indexOf('.system_generated');
-      if (
-        sysGenIdx !== -1 &&
-        (normalizedSegments[sysGenIdx + 1] === 'logs' ||
-          normalizedSegments[sysGenIdx + 1] === 'messages')
-      ) {
-        throw createHttpError(
-          'Access denied: reading internal logs or messages from ".system_generated" is forbidden.',
-          400
-        );
-      }
-
-      const { isWithinAllowedRoot } = buildAllowedFilesystemRoots(homeDir, data);
-
-      if (!isWithinAllowedRoot(targetPath)) {
-        throw createHttpError(
-          `Access denied: file path "${targetPath}" must be within your home, workspace, or temp directory.`,
-          403
-        );
-      }
+      const targetPath = path.resolve(expandFsInputPath(rawFile, homeDir, { allowFileUri: true }));
+      const { ext, isWithinAllowedRoot } = validateFsTargetPath(targetPath, homeDir, data);
 
       if (!fs.existsSync(targetPath)) {
         throw createHttpError(`File not found: "${targetPath}"`, 404);
@@ -978,8 +910,7 @@ export function createSidecarApp() {
       }
 
       const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-      const fileData = fs.readFileSync(realTargetPath);
-      return new Response(fileData, {
+      return new Response(fs.readFileSync(realTargetPath), {
         contentType,
         status: 200,
         headers: {
@@ -995,53 +926,18 @@ export function createSidecarApp() {
   app.api(
     '/api/ai/refine',
     withErrorHandling(async (data) => {
-      const { image, stylePreset, prompt, width, height } = data;
-
-      if (!image || typeof image !== 'string' || !image.trim()) {
-        throw createHttpError(
-          'Missing or invalid "image" in refine request: must be a non-empty string.',
-          400
-        );
-      }
-
-      const hasStylePreset =
-        stylePreset !== undefined && stylePreset !== null && stylePreset !== '';
-      const hasPrompt = typeof prompt === 'string' && prompt.trim().length > 0;
-
-      if (hasStylePreset) {
-        if (
-          typeof stylePreset !== 'string' ||
-          !Object.prototype.hasOwnProperty.call(STYLE_PRESETS, stylePreset)
-        ) {
-          throw createHttpError(
-            `Invalid stylePreset "${stylePreset}". Allowed presets: ${Object.keys(STYLE_PRESETS).join(', ')}.`,
-            400
-          );
-        }
-      }
-
-      if (!hasStylePreset && !hasPrompt) {
-        throw createHttpError(
-          'Invalid refine request: at least one of "stylePreset" or "prompt" is required.',
-          400
-        );
-      }
-
-      const config = getConfig();
-      const geminiService = new GeminiRefineService(config);
+      const { image, stylePreset, prompt } = data;
+      const geminiService = new GeminiRefineService();
       const result = await geminiService.refineImage({
         image,
-        stylePreset: hasStylePreset ? stylePreset : undefined,
-        prompt: hasPrompt ? prompt : undefined,
-        width: width !== undefined ? Number(width) : undefined,
-        height: height !== undefined ? Number(height) : undefined,
+        stylePreset: stylePreset ?? undefined,
+        prompt: prompt ?? undefined,
       });
 
       return {
         status: 'ok',
         image: result.image,
         mimeType: result.mimeType,
-        text: result.text,
       };
     }),
     'POST'
@@ -1132,23 +1028,6 @@ export function createSidecarApp() {
         const res = await secureFetch('/_sidecar/send-message', {
           method: 'POST',
           body: JSON.stringify({ conversationId: targetConv, message, projectId })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      },
-      async startConversation(message, title) {
-        const projectId = await resolveProjectId(cfg.conversationId);
-        const res = await secureFetch('/_sidecar/new-conversation', {
-          method: 'POST',
-          body: JSON.stringify({ message, title, projectId })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      },
-      async getConversationMetadata(convId) {
-        const res = await secureFetch('/_sidecar/get-conversation-metadata', {
-          method: 'POST',
-          body: JSON.stringify({ conversationId: convId })
         });
         if (!res.ok) throw new Error(await res.text());
         return res.json();

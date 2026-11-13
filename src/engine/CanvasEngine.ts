@@ -26,7 +26,6 @@ import { ShapeTool } from './tools/ShapeTool.ts';
 import { TextTool } from './tools/TextTool.ts';
 import { EyedropperTool } from './tools/EyedropperTool.ts';
 import { DragTool } from './tools/DragTool.ts';
-import { serializePsd, parsePsd, exportPsdFile } from '../utils/psd.ts';
 
 export type Tool = BaseTool;
 
@@ -113,9 +112,7 @@ export class CanvasEngine {
     this.tools.set('select', defaultSelect);
     this.tools.set('shape', defaultShape);
     this.tools.set('rect', defaultShape);
-    this.tools.set('rectangle', defaultShape);
     this.tools.set('circle', defaultShape);
-    this.tools.set('ellipse', defaultShape);
     this.tools.set('line', defaultShape);
     this.tools.set('arrow', defaultShape);
     this.tools.set('text', defaultText);
@@ -186,10 +183,6 @@ export class CanvasEngine {
     for (const cb of this.toolChangeListeners) {
       cb(toolId);
     }
-  }
-
-  public getTool(id: string): Tool | undefined {
-    return this.tools.get(id);
   }
 
   public getActiveTool(): Tool | null {
@@ -289,16 +282,11 @@ export class CanvasEngine {
       if (!found) {
         throw new Error(`Tool with id "${toolOrId}" is not registered in CanvasEngine.`);
       }
-      if (found instanceof ShapeTool) {
-        if (toolOrId === 'rect' || toolOrId === 'rectangle') {
-          found.shapeType = 'rect';
-        } else if (toolOrId === 'circle' || toolOrId === 'ellipse') {
-          found.shapeType = 'circle';
-        } else if (toolOrId === 'line') {
-          found.shapeType = 'line';
-        } else if (toolOrId === 'arrow') {
-          found.shapeType = 'arrow';
-        }
+      if (
+        found instanceof ShapeTool &&
+        (toolOrId === 'rect' || toolOrId === 'circle' || toolOrId === 'line' || toolOrId === 'arrow')
+      ) {
+        found.shapeType = toolOrId;
       }
       resolvedTool = found;
       notifyKey = toolOrId;
@@ -319,18 +307,6 @@ export class CanvasEngine {
     this.container.style.cursor = (this.isSpacePressed || resolvedTool.id === 'drag') ? 'grab' : 'default';
     this.renderOverlay();
     this.notifyToolChange(notifyKey);
-  }
-
-  public async loadPsd(buffer: ArrayBuffer): Promise<void> {
-    parsePsd(buffer, this);
-  }
-
-  public exportPsd(): Uint8Array {
-    return new Uint8Array(serializePsd(this));
-  }
-
-  public downloadPsd(filename?: string): void {
-    exportPsdFile(this, filename);
   }
 
   public addLayer(name?: string): Layer {
@@ -472,21 +448,21 @@ export class CanvasEngine {
     this.applyTransform();
   }
 
+  private compositeLayersTo(ctx: CanvasRenderingContext2D): void {
+    for (const layer of this.layers) {
+      if (!layer.visible) continue;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1.0, Math.max(0.0, layer.opacity));
+      ctx.globalCompositeOperation = layer.blendMode;
+      ctx.drawImage(layer.canvas, 0, 0);
+      ctx.restore();
+    }
+  }
+
   public render(): void {
     // Clear display canvas (checkerboard is rendered via CSS on .canvas-main)
     this.displayCtx.clearRect(0, 0, this.width, this.height);
-
-    // Composite visible layers from bottom to top
-    for (const layer of this.layers) {
-      if (!layer.visible) continue;
-
-      this.displayCtx.save();
-      this.displayCtx.globalAlpha = Math.min(1.0, Math.max(0.0, layer.opacity));
-      this.displayCtx.globalCompositeOperation = layer.blendMode;
-      this.displayCtx.drawImage(layer.canvas, 0, 0);
-      this.displayCtx.restore();
-    }
-
+    this.compositeLayersTo(this.displayCtx);
     this.renderOverlay();
   }
 
@@ -504,14 +480,7 @@ export class CanvasEngine {
     const ctx = comp.getContext('2d');
     if (!ctx) throw new Error('Failed to create composite context');
 
-    for (const layer of this.layers) {
-      if (!layer.visible) continue;
-      ctx.save();
-      ctx.globalAlpha = Math.min(1.0, Math.max(0.0, layer.opacity));
-      ctx.globalCompositeOperation = layer.blendMode;
-      ctx.drawImage(layer.canvas, 0, 0);
-      ctx.restore();
-    }
+    this.compositeLayersTo(ctx);
     return comp;
   }
 

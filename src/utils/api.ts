@@ -21,8 +21,6 @@ export interface SidecarBridge {
   onWorkspaceChange: (listener: (uris: string[]) => void) => () => void;
   agent: {
     sendMessage: (message: string, conversationId?: string) => Promise<unknown>;
-    startConversation: (message: string, title?: string) => Promise<unknown>;
-    getConversationMetadata: (conversationId: string) => Promise<unknown>;
   };
   ui: {
     toggleAuxPane: (request?: { open?: boolean }) => void;

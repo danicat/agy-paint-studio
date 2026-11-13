@@ -16,10 +16,10 @@
 
 import type { CanvasEngine } from '../engine/CanvasEngine.ts';
 import { SelectionTool } from '../engine/tools/SelectionTool.ts';
-import { exportPsdFile, importPsdFile, serializePsd } from '../utils/psd.ts';
+import { importPsdFile } from '../utils/psd.ts';
 import {
   sidecarFetch,
-  getWorkspaceUris,
+  parseApiErrorMessage,
   sendAgentMessage,
   fetchActiveSessionId,
   getSessionId,
@@ -27,9 +27,13 @@ import {
   onSessionChange,
   getFullStudioUrl
 } from '../utils/api.ts';
+import { formatAgentArtworkMessage, loadBlobOrFileIntoEngine } from '../utils/imageIO.ts';
+import { mountAiRefineBar } from './AiRefineBar.ts';
 import { ArtifactModal } from './ArtifactModal.ts';
 import { ConversationModal } from './ConversationModal.ts';
+import { mountModal, shouldIgnoreCanvasShortcut } from './Modal.ts';
 import { NotificationManager } from './Notification.ts';
+import { openSaveExportModal, type SaveExportState } from './SaveExportModal.ts';
 
 export class Header {
   private engine: CanvasEngine;
@@ -37,11 +41,10 @@ export class Header {
   private artifactModal: ArtifactModal;
   private conversationModal: ConversationModal;
   private sessionId: string | null = null;
-  private shortcutsEscHandler: ((e: KeyboardEvent) => void) | null = null;
-  private newCanvasEscHandler: ((e: KeyboardEvent) => void) | null = null;
-  private saveExportEscHandler: ((e: KeyboardEvent) => void) | null = null;
-  private lastSaveDirectory = '';
-  private lastSaveBasename = '';
+  private saveExportState: SaveExportState = {
+    lastSaveDirectory: '',
+    lastSaveBasename: ''
+  };
   public onSessionChange: ((sessionId: string) => void) | null = null;
 
   constructor(engine: CanvasEngine, container: HTMLElement) {
@@ -54,7 +57,10 @@ export class Header {
 
     this.render();
     this.bindEvents();
-    this.renderAiRefineBar();
+    const aiBar = document.getElementById('ai-refine-bar');
+    if (aiBar) {
+      mountAiRefineBar(aiBar, this.engine);
+    }
 
     this.artifactModal.setSessionId(this.sessionId);
 
@@ -366,190 +372,6 @@ export class Header {
     this.updateSessionUI();
   }
 
-  private renderAiRefineBar() {
-    const bar = document.getElementById('ai-refine-bar');
-    if (!bar) return;
-
-    bar.innerHTML = `
-      <div class="ai-preset-group" role="group" aria-label="AI Style Presets">
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="beautify" title="Beautify: Creatively interpret sketch and bring it to life">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"></path>
-          </svg>
-          <span>Beautify</span>
-        </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="apply-notes" title="Apply Notes: Execute drawn or written annotation edits and remove markings">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 20h9"></path>
-            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-          </svg>
-          <span>Notes</span>
-        </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="watercolor" title="Watercolor: Expressive wet-on-wet watercolour painting on textured paper">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
-          </svg>
-          <span>Watercolor</span>
-        </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="concept-art" title="Concept Art: Polished digital concept art with cinematic lighting">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m8 3 4 8 5-5 5 15H2L8 3z"></path>
-          </svg>
-          <span>Concept Art</span>
-        </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="vector" title="Vector: Sharp minimalist vector graphic with bold outlines and gradients">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-            <polyline points="2 17 12 22 22 17"></polyline>
-            <polyline points="2 12 12 17 22 12"></polyline>
-          </svg>
-          <span>Vector</span>
-        </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="pixel-art" title="Pixel Art: Clean 16-bit retro pixel art sprite">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7" height="7"></rect>
-            <rect x="14" y="3" width="7" height="7"></rect>
-            <rect x="14" y="14" width="7" height="7"></rect>
-            <rect x="3" y="14" width="7" height="7"></rect>
-          </svg>
-          <span>Pixel Art</span>
-        </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="3d-clay" title="3D Clay: Tactile 3D clay model with soft studio lighting">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-            <line x1="12" y1="22.08" x2="12" y2="12"></line>
-          </svg>
-          <span>3D Clay</span>
-        </button>
-        <button type="button" class="btn btn-xs btn-outline ai-preset-btn" data-ai-preset="anime" title="Anime: Lush hand-painted studio anime illustration">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
-          </svg>
-          <span>Anime</span>
-        </button>
-      </div>
-      <input
-        type="text"
-        id="ai-refine-prompt"
-        class="input-text ai-prompt-input"
-        placeholder="Describe AI changes or click a preset..."
-        aria-label="AI refinement prompt"
-      />
-      <button type="button" id="btn-ai-refine-generate" class="btn btn-xs btn-ai-refine-submit" title="Apply AI prompt to canvas (Enter)">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"></path>
-        </svg>
-        <span>Refine</span>
-      </button>
-    `;
-
-    const promptInput = bar.querySelector('#ai-refine-prompt') as HTMLInputElement | null;
-    const generateBtn = bar.querySelector('#btn-ai-refine-generate') as HTMLButtonElement | null;
-    const presetButtons = bar.querySelectorAll('.ai-preset-btn');
-    if (!promptInput || !generateBtn) return;
-
-    const triggerAiRefine = async (presetOverride?: string) => {
-      const prompt = promptInput.value.trim();
-      const stylePreset = presetOverride || 'beautify';
-      if (!presetOverride && !prompt) {
-        NotificationManager.info('Type a prompt in the AI bar or click a style preset.');
-        promptInput.focus();
-        return;
-      }
-      if (generateBtn.disabled) return;
-
-      const originalHtml = generateBtn.innerHTML;
-      generateBtn.disabled = true;
-      generateBtn.textContent = 'Generating...';
-      presetButtons.forEach((b) => ((b as HTMLButtonElement).disabled = true));
-
-      try {
-        const compCanvas = this.engine.getCompositeCanvas();
-        const base64Data = compCanvas.toDataURL('image/png');
-
-        const res = await sidecarFetch('/api/ai/refine', {
-          method: 'POST',
-          body: JSON.stringify({
-            image: base64Data,
-            stylePreset,
-            prompt: prompt || undefined,
-            width: this.engine.width,
-            height: this.engine.height
-          })
-        });
-
-        if (!res.ok) {
-          const bodyText = await res.text();
-          let errMsg = `HTTP ${res.status}: ${res.statusText}`;
-          if (bodyText) {
-            try {
-              const parsed = JSON.parse(bodyText);
-              if (parsed.error) errMsg = parsed.error;
-            } catch {
-              errMsg = bodyText;
-            }
-          }
-          throw new Error(errMsg);
-        }
-
-        const result = await res.json();
-        const resultImage = result.image || result.imageBase64;
-        if (!resultImage) {
-          throw new Error('AI service returned an empty image response.');
-        }
-
-        const imgSrc = resultImage.startsWith('data:')
-          ? resultImage
-          : `data:${result.mimeType || 'image/png'};base64,${resultImage}`;
-
-        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const image = new Image();
-          image.onload = () => resolve(image);
-          image.onerror = () =>
-            reject(new Error('Failed to decode the image returned by the AI refinement model.'));
-          image.src = imgSrc;
-        });
-
-        const labelSource = prompt || presetOverride || 'Refine';
-        const layerName = `AI: ${labelSource.substring(0, 24)}`;
-        const newLayer = this.engine.addLayer(layerName);
-        newLayer.ctx.drawImage(img, 0, 0, this.engine.width, this.engine.height);
-        this.engine.render();
-        this.engine.commitHistory();
-        promptInput.value = '';
-        NotificationManager.success('AI refinement applied as a new layer!');
-      } catch (err: any) {
-        console.error('[Header] AI refinement failed:', err);
-        NotificationManager.fatal('AI Refine Failed', err);
-      } finally {
-        generateBtn.disabled = false;
-        generateBtn.innerHTML = originalHtml;
-        presetButtons.forEach((b) => ((b as HTMLButtonElement).disabled = false));
-      }
-    };
-
-    generateBtn.addEventListener('click', () => {
-      triggerAiRefine();
-    });
-
-    promptInput.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        triggerAiRefine();
-      }
-    });
-
-    presetButtons.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const preset = btn.getAttribute('data-ai-preset');
-        if (preset) {
-          triggerAiRefine(preset);
-        }
-      });
-    });
-  }
-
   private bindEvents() {
     // Undo / Redo
     this.container.querySelector('#undo-btn')?.addEventListener('click', () => this.engine.undo());
@@ -658,13 +480,21 @@ export class Header {
       }
     });
 
+    const openSaveModal = (fmt: 'psd' | 'png' | 'jpg' | 'webp') =>
+      openSaveExportModal({
+        engine: this.engine,
+        sessionId: this.sessionId,
+        initialFormat: fmt,
+        state: this.saveExportState
+      });
+
     // Save & Export (Filesystem Dialog)
-    this.container.querySelector('#save-psd-btn')?.addEventListener('click', () => this.openSaveExportModal('psd'));
-    this.container.querySelector('#export-img-btn')?.addEventListener('click', () => this.openSaveExportModal('png'));
-    this.container.querySelector('#menu-export-psd')?.addEventListener('click', () => this.openSaveExportModal('psd'));
-    this.container.querySelector('#menu-export-png')?.addEventListener('click', () => this.openSaveExportModal('png'));
-    this.container.querySelector('#menu-export-jpg')?.addEventListener('click', () => this.openSaveExportModal('jpg'));
-    this.container.querySelector('#menu-export-webp')?.addEventListener('click', () => this.openSaveExportModal('webp'));
+    this.container.querySelector('#save-psd-btn')?.addEventListener('click', () => openSaveModal('psd'));
+    this.container.querySelector('#export-img-btn')?.addEventListener('click', () => openSaveModal('png'));
+    this.container.querySelector('#menu-export-psd')?.addEventListener('click', () => openSaveModal('psd'));
+    this.container.querySelector('#menu-export-png')?.addEventListener('click', () => openSaveModal('png'));
+    this.container.querySelector('#menu-export-jpg')?.addEventListener('click', () => openSaveModal('jpg'));
+    this.container.querySelector('#menu-export-webp')?.addEventListener('click', () => openSaveModal('webp'));
 
     // Modals
     this.container.querySelector('#artifacts-btn')?.addEventListener('click', () => {
@@ -684,28 +514,17 @@ export class Header {
 
     this.container.querySelector('#header-session-badge')?.addEventListener('click', openSessionSelector);
 
-    // Send to Agent
+    // Send to Agent (always open dialog for optional comment)
     this.container.querySelector('#send-to-agent-btn')?.addEventListener('click', () => {
-      if (!this.sessionId || this.sessionId === 'standalone') {
-        this.conversationModal.open('send', this.sessionId, async (targetSessionId) => {
-          this.setSessionId(targetSessionId);
-          await this.handleSendToAgent();
-        });
-        return;
-      }
-      this.handleSendToAgent();
+      this.conversationModal.open('send', this.sessionId, async (targetSessionId, comment) => {
+        this.setSessionId(targetSessionId);
+        await this.handleSendToAgent(comment);
+      });
     });
 
     // Global Menu & Document Keyboard Shortcuts
     window.addEventListener('keydown', (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        Boolean(target?.isContentEditable) ||
-        document.querySelector('.modal-overlay')
-      ) {
+      if (shouldIgnoreCanvasShortcut(e)) {
         return;
       }
 
@@ -716,10 +535,10 @@ export class Header {
       if (isCmdOrCtrl) {
         if (key === 's' && !e.shiftKey) {
           e.preventDefault();
-          this.openSaveExportModal('psd');
+          openSaveModal('psd');
         } else if (key === 'e' && e.shiftKey) {
           e.preventDefault();
-          this.openSaveExportModal('png');
+          openSaveModal('png');
         } else if (key === 'o' && e.shiftKey) {
           e.preventDefault();
           openPsdInput?.click();
@@ -760,129 +579,63 @@ export class Header {
 
   private async handleImageUpload(file: File, asNewLayer: boolean) {
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === 'string') {
-            resolve(reader.result);
-          } else {
-            reject(new Error(`FileReader produced an empty result for "${file.name}".`));
-          }
-        };
-        reader.onerror = () => {
-          reject(reader.error || new Error(`Failed to read file "${file.name}".`));
-        };
-        reader.readAsDataURL(file);
-      });
-
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () =>
-          reject(new Error(`Failed to decode image "${file.name}". The file may be corrupted or in an unsupported format.`));
-        image.src = dataUrl;
-      });
-
-      if (asNewLayer) {
-        const layer = this.engine.addLayer(file.name);
-        layer.ctx.drawImage(img, 0, 0);
-        this.engine.render();
-        this.engine.commitHistory();
-        NotificationManager.success(`Imported "${file.name}" as layer`);
-      } else {
-        this.engine.resizeDocument(img.naturalWidth, img.naturalHeight);
-        this.engine.initDefaultDocument();
-        const active = this.engine.getActiveLayer();
-        if (active) {
-          active.ctx.drawImage(img, 0, 0);
-          this.engine.render();
-          this.engine.commitHistory();
-        }
-        NotificationManager.success(`Opened "${file.name}" (${img.naturalWidth}×${img.naturalHeight})`);
-      }
-    } catch (err: any) {
+      const { width, height } = await loadBlobOrFileIntoEngine(
+        this.engine,
+        file,
+        file.name,
+        { asNewLayer }
+      );
+      NotificationManager.success(
+        asNewLayer
+          ? `Imported "${file.name}" as layer`
+          : `Opened "${file.name}" (${width}×${height})`
+      );
+    } catch (err: unknown) {
       console.error('[Header] Image upload failed:', err);
       NotificationManager.fatal('Image Load Failed', err);
     }
   }
 
   private openDimensionsModal(mode: 'new' | 'resize') {
-    const existing = document.getElementById('dimensions-modal-overlay');
-    if (existing) existing.remove();
-    if (this.newCanvasEscHandler) {
-      window.removeEventListener('keydown', this.newCanvasEscHandler);
-      this.newCanvasEscHandler = null;
-    }
-
-    const overlay = document.createElement('div');
-    overlay.id = 'dimensions-modal-overlay';
-    overlay.className = 'modal-overlay';
-
     const titleText = mode === 'new' ? 'New Canvas' : 'Resize Canvas';
     const actionText = mode === 'new' ? 'Create Canvas' : 'Resize Canvas';
 
-    const modal = document.createElement('div');
-    modal.className = 'modal-dialog';
-    modal.style.maxWidth = '380px';
-    modal.innerHTML = `
-      <div class="modal-header">
-        <div class="modal-title"><span>${titleText}</span></div>
-        <button class="modal-close-btn" title="Close (Esc)">✕</button>
+    const { body, close } = mountModal({
+      id: 'dimensions-modal-dialog',
+      title: titleText,
+      maxWidth: '380px'
+    });
+
+    body.innerHTML = `
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="800" data-h="600">800×600</button>
+        <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="1024" data-h="768">1024×768</button>
+        <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="1280" data-h="720">1280×720</button>
+        <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="1024" data-h="1024">1024×1024</button>
+        <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="1920" data-h="1080">1920×1080</button>
       </div>
-      <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px;">
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="800" data-h="600">800×600</button>
-          <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="1024" data-h="768">1024×768</button>
-          <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="1280" data-h="720">1280×720</button>
-          <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="1024" data-h="1024">1024×1024</button>
-          <button type="button" class="btn btn-sm btn-outline dim-preset-btn" data-w="1920" data-h="1080">1920×1080</button>
-        </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary);">
-            <span>Width (px)</span>
-            <input type="number" id="dim-width-input" class="input-text" min="1" max="8192" value="${this.engine.width}">
-          </label>
-          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary);">
-            <span>Height (px)</span>
-            <input type="number" id="dim-height-input" class="input-text" min="1" max="8192" value="${this.engine.height}">
-          </label>
-        </div>
-        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
-          <button type="button" id="dim-cancel-btn" class="btn btn-outline">Cancel</button>
-          <button type="button" id="dim-confirm-btn" class="btn btn-primary">${actionText}</button>
-        </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary);">
+          <span>Width (px)</span>
+          <input type="number" id="dim-width-input" class="input-text" min="1" max="8192" value="${this.engine.width}">
+        </label>
+        <label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary);">
+          <span>Height (px)</span>
+          <input type="number" id="dim-height-input" class="input-text" min="1" max="8192" value="${this.engine.height}">
+        </label>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+        <button type="button" id="dim-cancel-btn" class="btn btn-outline">Cancel</button>
+        <button type="button" id="dim-confirm-btn" class="btn btn-primary">${actionText}</button>
       </div>
     `;
 
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
+    body.querySelector('#dim-cancel-btn')?.addEventListener('click', close);
 
-    const closeModal = () => {
-      if (this.newCanvasEscHandler) {
-        window.removeEventListener('keydown', this.newCanvasEscHandler);
-        this.newCanvasEscHandler = null;
-      }
-      overlay.remove();
-    };
+    const widthInput = body.querySelector('#dim-width-input') as HTMLInputElement;
+    const heightInput = body.querySelector('#dim-height-input') as HTMLInputElement;
 
-    this.newCanvasEscHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeModal();
-      }
-    };
-    window.addEventListener('keydown', this.newCanvasEscHandler);
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) closeModal();
-    });
-    modal.querySelector('.modal-close-btn')?.addEventListener('click', closeModal);
-    modal.querySelector('#dim-cancel-btn')?.addEventListener('click', closeModal);
-
-    const widthInput = modal.querySelector('#dim-width-input') as HTMLInputElement;
-    const heightInput = modal.querySelector('#dim-height-input') as HTMLInputElement;
-
-    modal.querySelectorAll('.dim-preset-btn').forEach((btn) => {
+    body.querySelectorAll('.dim-preset-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const w = btn.getAttribute('data-w');
         const h = btn.getAttribute('data-h');
@@ -891,7 +644,7 @@ export class Header {
       });
     });
 
-    modal.querySelector('#dim-confirm-btn')?.addEventListener('click', () => {
+    body.querySelector('#dim-confirm-btn')?.addEventListener('click', () => {
       const w = parseInt(widthInput.value, 10);
       const h = parseInt(heightInput.value, 10);
       if (isNaN(w) || isNaN(h) || w < 1 || h < 1 || w > 8192 || h > 8192) {
@@ -907,397 +660,63 @@ export class Header {
         this.engine.resizeDocument(w, h);
         NotificationManager.success(`Resized canvas to ${w}×${h}`);
       }
-      closeModal();
+      close();
     });
   }
 
   private openShortcutsModal() {
-    const existing = document.getElementById('shortcuts-modal');
-    if (existing) existing.remove();
-    if (this.shortcutsEscHandler) {
-      window.removeEventListener('keydown', this.shortcutsEscHandler);
-      this.shortcutsEscHandler = null;
-    }
+    const { body } = mountModal({
+      id: 'shortcuts-modal-dialog',
+      title: 'Keyboard Shortcuts',
+      className: 'shortcuts-modal-dialog',
+      maxWidth: '500px'
+    });
 
-    const overlay = document.createElement('div');
-    overlay.id = 'shortcuts-modal';
-    overlay.className = 'modal-overlay';
-
-    const modal = document.createElement('div');
-    modal.className = 'modal-dialog shortcuts-modal-dialog';
-    modal.style.maxWidth = '500px';
-    modal.innerHTML = `
-      <div class="modal-header">
-        <div class="modal-title">
-          <span>Keyboard Shortcuts</span>
-        </div>
-        <button class="modal-close-btn" title="Close (Esc)">✕</button>
-      </div>
-      <div class="modal-body" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; font-size: 12px;">
-        <div><strong>V</strong> — Select / Cut / Move</div>
-        <div><strong>B</strong> — Smooth Brush</div>
-        <div><strong>P</strong> — Pixel Pencil</div>
-        <div><strong>E</strong> — Eraser Tool</div>
-        <div><strong>U / O</strong> — Rectangle / Ellipse</div>
-        <div><strong>L / A</strong> — Line / Arrow</div>
-        <div><strong>T</strong> — Text Tool</div>
-        <div><strong>G</strong> — Paint Bucket</div>
-        <div><strong>I</strong> — Eyedropper</div>
-        <div><strong>H / Space</strong> — Pan Canvas</div>
-        <div><strong>X</strong> — Swap FG/BG Colors</div>
-        <div><strong>[ / ]</strong> — Decrease / Increase Size</div>
-        <div><strong>⌘Z / ⇧⌘Z</strong> — Undo / Redo</div>
-        <div><strong>⌘C / ⌘X / ⌘V</strong> — Copy / Cut / Paste</div>
-        <div><strong>⌘S / ⇧⌘E</strong> — Export PSD / PNG</div>
-        <div><strong>⌘0 / ⌘9</strong> — 100% / Fit View</div>
-        <div><strong>⌫</strong> — Clear Selection / Layer</div>
-        <div><strong>Esc</strong> — Deselect / Close Modal</div>
-      </div>
+    body.style.display = 'grid';
+    body.style.gridTemplateColumns = '1fr 1fr';
+    body.style.gap = '10px 20px';
+    body.style.fontSize = '12px';
+    body.innerHTML = `
+      <div><strong>V</strong>: Select / Cut / Move</div>
+      <div><strong>B</strong>: Smooth Brush</div>
+      <div><strong>P</strong>: Pixel Pencil</div>
+      <div><strong>E</strong>: Eraser Tool</div>
+      <div><strong>U / O</strong>: Rectangle / Ellipse</div>
+      <div><strong>L / A</strong>: Line / Arrow</div>
+      <div><strong>T</strong>: Text Tool</div>
+      <div><strong>G</strong>: Paint Bucket</div>
+      <div><strong>I</strong>: Eyedropper</div>
+      <div><strong>H / Space</strong>: Pan Canvas</div>
+      <div><strong>X</strong>: Swap FG/BG Colors</div>
+      <div><strong>[ / ]</strong>: Decrease / Increase Size</div>
+      <div><strong>⌘Z / ⇧⌘Z</strong>: Undo / Redo</div>
+      <div><strong>⌘C / ⌘X / ⌘V</strong>: Copy / Cut / Paste</div>
+      <div><strong>⌘S / ⇧⌘E</strong>: Export PSD / PNG</div>
+      <div><strong>⌘0 / ⌘9</strong>: 100% / Fit View</div>
+      <div><strong>⌫</strong>: Clear Selection / Layer</div>
+      <div><strong>Esc</strong>: Deselect / Close Modal</div>
     `;
-
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-
-    const closeModal = () => {
-      if (this.shortcutsEscHandler) {
-        window.removeEventListener('keydown', this.shortcutsEscHandler);
-        this.shortcutsEscHandler = null;
-      }
-      overlay.remove();
-    };
-
-    this.shortcutsEscHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeModal();
-      }
-    };
-    window.addEventListener('keydown', this.shortcutsEscHandler);
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) closeModal();
-    });
-    modal.querySelector('.modal-close-btn')?.addEventListener('click', closeModal);
   }
 
-  private async openSaveExportModal(initialFormat: 'psd' | 'png' | 'jpg' | 'webp') {
-    const existing = document.getElementById('save-export-modal-overlay');
-    if (existing) existing.remove();
-    if (this.saveExportEscHandler) {
-      window.removeEventListener('keydown', this.saveExportEscHandler);
-      this.saveExportEscHandler = null;
-    }
-
-    let currentFormat: 'psd' | 'png' | 'jpg' | 'webp' = initialFormat;
-    const baseName = this.lastSaveBasename || `artwork-${Date.now()}`;
-    const initialDir = this.lastSaveDirectory || '~/Downloads';
-
-    const overlay = document.createElement('div');
-    overlay.id = 'save-export-modal-overlay';
-    overlay.className = 'modal-overlay';
-
-    const modal = document.createElement('div');
-    modal.className = 'modal-dialog';
-    modal.style.width = '460px';
-    modal.style.maxWidth = '94vw';
-    modal.innerHTML = `
-      <div class="modal-header">
-        <div class="modal-title">
-          <span id="save-modal-title">${initialFormat === 'psd' ? 'Save Project (PSD)' : 'Export Image'}</span>
-        </div>
-        <button class="modal-close-btn" title="Close (Esc)">✕</button>
-      </div>
-      <div class="modal-body" style="display: flex; flex-direction: column; gap: 12px;">
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Format</span>
-          <div style="display: flex; gap: 6px; flex-wrap: wrap;" id="save-format-pills">
-            <button type="button" class="btn btn-sm btn-outline save-format-btn ${currentFormat === 'psd' ? 'active' : ''}" data-format="psd">PSD (With Layers)</button>
-            <button type="button" class="btn btn-sm btn-outline save-format-btn ${currentFormat === 'png' ? 'active' : ''}" data-format="png">PNG</button>
-            <button type="button" class="btn btn-sm btn-outline save-format-btn ${currentFormat === 'jpg' ? 'active' : ''}" data-format="jpg">JPEG</button>
-            <button type="button" class="btn btn-sm btn-outline save-format-btn ${currentFormat === 'webp' ? 'active' : ''}" data-format="webp">WebP</button>
-          </div>
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Destination Folder</span>
-            <div id="save-dir-pills" style="display: flex; gap: 4px; flex-wrap: wrap;"></div>
-          </div>
-          <input type="text" id="save-dir-input" class="input-text" value="${initialDir}" placeholder="~/Downloads" spellcheck="false">
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Filename</span>
-          <input type="text" id="save-filename-input" class="input-text" value="${baseName}.${currentFormat}" placeholder="artwork.${currentFormat}" spellcheck="false">
-        </div>
-
-        <div id="save-fullpath-preview" style="font-size: 11px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-hover); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-color); word-break: break-all;"></div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 2px;">
-          <button type="button" id="save-browser-download-btn" class="btn btn-sm btn-outline" title="Download via Browser">Browser Download</button>
-          <div style="display: flex; gap: 8px;">
-            <button type="button" id="save-cancel-btn" class="btn btn-sm btn-outline">Cancel</button>
-            <button type="button" id="save-confirm-btn" class="btn btn-sm btn-primary">Save to Filesystem</button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-
-    const closeModal = () => {
-      if (this.saveExportEscHandler) {
-        window.removeEventListener('keydown', this.saveExportEscHandler);
-        this.saveExportEscHandler = null;
-      }
-      overlay.remove();
-    };
-
-    this.saveExportEscHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeModal();
-      }
-    };
-    window.addEventListener('keydown', this.saveExportEscHandler);
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) closeModal();
-    });
-    modal.querySelector('.modal-close-btn')?.addEventListener('click', closeModal);
-    modal.querySelector('#save-cancel-btn')?.addEventListener('click', closeModal);
-
-    const titleEl = modal.querySelector('#save-modal-title') as HTMLElement;
-    const dirInput = modal.querySelector('#save-dir-input') as HTMLInputElement;
-    const filenameInput = modal.querySelector('#save-filename-input') as HTMLInputElement;
-    const previewEl = modal.querySelector('#save-fullpath-preview') as HTMLElement;
-    const dirPillsEl = modal.querySelector('#save-dir-pills') as HTMLElement;
-    const confirmBtn = modal.querySelector('#save-confirm-btn') as HTMLButtonElement;
-    const browserDownloadBtn = modal.querySelector('#save-browser-download-btn') as HTMLButtonElement;
-    const formatBtns = modal.querySelectorAll('.save-format-btn');
-
-    const ensureExtension = (name: string, fmt: string): string => {
-      const stripped = name.trim().replace(/\.(psd|png|jpg|jpeg|webp)$/i, '') || `artwork-${Date.now()}`;
-      return `${stripped}.${fmt}`;
-    };
-
-    const updatePreview = () => {
-      const dir = dirInput.value.trim().replace(/\/+$/, '') || '.';
-      const fn = ensureExtension(filenameInput.value, currentFormat);
-      previewEl.textContent = `${dir}/${fn}`;
-    };
-
-    updatePreview();
-
-    formatBtns.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const fmt = btn.getAttribute('data-format') as 'psd' | 'png' | 'jpg' | 'webp' | null;
-        if (!fmt) return;
-        currentFormat = fmt;
-        formatBtns.forEach((b) => b.classList.toggle('active', b === btn));
-        titleEl.textContent = currentFormat === 'psd' ? 'Save Project (PSD)' : `Export ${currentFormat.toUpperCase()} Image`;
-        filenameInput.value = ensureExtension(filenameInput.value, currentFormat);
-        updatePreview();
-      });
-    });
-
-    dirInput.addEventListener('input', updatePreview);
-    filenameInput.addEventListener('input', updatePreview);
-
-    // Fetch filesystem info from sidecar server to populate default directory and quick pills
-    (async () => {
-      try {
-        const workspaceUris = await getWorkspaceUris();
-        const query = new URLSearchParams();
-        if (this.sessionId) {
-          query.set('session_id', this.sessionId);
-        }
-        if (workspaceUris.length > 0) {
-          query.set('workspace_uri', workspaceUris[0]);
-        }
-        const qs = query.toString();
-        const res = await sidecarFetch(`/api/fs/info${qs ? `?${qs}` : ''}`);
-        if (!res.ok) return;
-        const info = await res.json();
-        if (!this.lastSaveDirectory && info.defaultDir) {
-          dirInput.value = info.defaultDir;
-          updatePreview();
-        }
-
-        const quickDirs: Array<{ label: string; path: string }> = [];
-        if (info.downloadsDir) quickDirs.push({ label: 'Downloads', path: info.downloadsDir });
-        if (info.desktopDir) quickDirs.push({ label: 'Desktop', path: info.desktopDir });
-        if (info.workspaceDir) quickDirs.push({ label: 'Workspace', path: info.workspaceDir });
-        if (info.sessionDir) quickDirs.push({ label: 'Session', path: info.sessionDir });
-
-        dirPillsEl.innerHTML = '';
-        for (const q of quickDirs) {
-          const pill = document.createElement('button');
-          pill.type = 'button';
-          pill.className = 'btn btn-xs btn-outline';
-          pill.textContent = q.label;
-          pill.title = q.path;
-          pill.addEventListener('click', () => {
-            dirInput.value = q.path;
-            updatePreview();
-          });
-          dirPillsEl.appendChild(pill);
-        }
-      } catch (err) {
-        console.warn('[Header] Failed to load filesystem info:', err);
-      }
-    })();
-
-    const encodePayloadBase64 = (fmt: 'psd' | 'png' | 'jpg' | 'webp'): string => {
-      if (fmt === 'psd') {
-        const psdBuffer = serializePsd(this.engine);
-        const psdBytes = new Uint8Array(psdBuffer);
-        let binary = '';
-        for (let i = 0; i < psdBytes.byteLength; i++) {
-          binary += String.fromCharCode(psdBytes[i]);
-        }
-        return btoa(binary);
-      }
-      const comp = this.engine.getCompositeCanvas();
-      const mime = fmt === 'jpg' ? 'image/jpeg' : fmt === 'webp' ? 'image/webp' : 'image/png';
-      return comp.toDataURL(mime, 0.95);
-    };
-
-    const handleFilesystemSave = async () => {
-      const directory = dirInput.value.trim();
-      const finalFilename = ensureExtension(filenameInput.value, currentFormat);
-      if (!directory) {
-        NotificationManager.error('Missing Directory', 'Specify a destination folder path.');
-        return;
-      }
-
-      confirmBtn.disabled = true;
-      const origText = confirmBtn.textContent;
-      confirmBtn.textContent = 'Saving...';
-
-      try {
-        const workspaceUris = await getWorkspaceUris();
-        const data = encodePayloadBase64(currentFormat);
-        const res = await sidecarFetch('/api/fs/save', {
-          method: 'POST',
-          body: JSON.stringify({
-            directory,
-            filename: finalFilename,
-            data,
-            workspaceUris,
-          }),
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          let errMsg = `HTTP ${res.status}: ${res.statusText}`;
-          if (errText) {
-            try {
-              const parsed = JSON.parse(errText);
-              if (parsed.error) errMsg = parsed.error;
-            } catch {
-              errMsg = errText;
-            }
-          }
-          throw new Error(errMsg);
-        }
-
-        const result = await res.json();
-        this.lastSaveDirectory = directory;
-        this.lastSaveBasename = finalFilename.replace(/\.(psd|png|jpg|jpeg|webp)$/i, '');
-        NotificationManager.success(`Saved to ${result.path}`);
-        closeModal();
-      } catch (err: any) {
-        console.error('[Header] Filesystem save failed:', err);
-        NotificationManager.fatal('Save to Filesystem Failed', err);
-      } finally {
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = origText;
-      }
-    };
-
-    confirmBtn.addEventListener('click', handleFilesystemSave);
-
-    filenameInput.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        handleFilesystemSave();
-      }
-    });
-
-    dirInput.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        handleFilesystemSave();
-      }
-    });
-
-    browserDownloadBtn.addEventListener('click', () => {
-      const finalFilename = ensureExtension(filenameInput.value, currentFormat);
-      try {
-        if (currentFormat === 'psd') {
-          exportPsdFile(this.engine, finalFilename);
-          NotificationManager.success(`Downloaded "${finalFilename}"`);
-        } else {
-          this.exportRaster(currentFormat, finalFilename);
-        }
-        closeModal();
-      } catch (err: any) {
-        NotificationManager.fatal('Download Failed', err);
-      }
-    });
-
-    filenameInput.focus();
-    const dotIndex = filenameInput.value.lastIndexOf('.');
-    if (dotIndex > 0) {
-      filenameInput.setSelectionRange(0, dotIndex);
-    } else {
-      filenameInput.select();
-    }
-  }
-
-  private exportRaster(format: 'png' | 'jpg' | 'webp', customFilename?: string) {
-    const comp = this.engine.getCompositeCanvas();
-    const mime = format === 'jpg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
-    const dataUrl = comp.toDataURL(mime, 0.95);
-
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = customFilename || `artwork-${Date.now()}.${format}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-
-    NotificationManager.success(`Exported ${format.toUpperCase()} image`);
-  }
-
-  private async handleSendToAgent() {
+  private async handleSendToAgent(comment?: string) {
     if (!this.sessionId) {
       this.sessionId = getSessionId();
     }
 
     if (!this.sessionId) {
-      NotificationManager.error(
-        'No Session Connected',
-        'Click "Session" in the header to connect to an active Antigravity conversation.'
-      );
-      return;
+      throw new Error('Click "Session" in the header to connect to an active Antigravity conversation.');
     }
 
     const sendBtn = this.container.querySelector('#send-to-agent-btn') as HTMLButtonElement | null;
     if (sendBtn) sendBtn.disabled = true;
 
     try {
-      const timestamp = Date.now();
-      const pngFilename = `paint-studio-${timestamp}.png`;
-
+      const pngFilename = `paint-studio-${Date.now()}.png`;
       NotificationManager.info('Sending artwork to active agent session...');
 
       const comp = this.engine.getCompositeCanvas();
       const pngBase64 = comp.toDataURL('image/png');
 
-      // 1. Save PNG artifact to session brain directory
       const pngRes = await sidecarFetch('/api/artifact', {
         method: 'POST',
         body: JSON.stringify({
@@ -1309,20 +728,19 @@ export class Header {
 
       if (!pngRes.ok) {
         const errText = await pngRes.text();
-        throw new Error(`Failed to save PNG artifact: ${errText || pngRes.statusText}`);
+        throw new Error(
+          `Failed to save PNG artifact: ${parseApiErrorMessage(errText, pngRes.status, pngRes.statusText)}`
+        );
       }
       const pngResult = await pngRes.json();
 
-      // 2. Deliver PNG message directly to the active Antigravity conversation via window.sidecar.agent
-      const messageContent = `![${pngFilename}](${pngResult.path})\n\n*Drawing sent from Paint Studio.*`;
+      const messageContent = formatAgentArtworkMessage(pngFilename, pngResult.path, comment);
       await sendAgentMessage(messageContent, this.sessionId);
 
-      NotificationManager.success(
-        `Delivered "${pngFilename}" directly to Antigravity chat!`
-      );
-    } catch (err: any) {
+      NotificationManager.success(`Delivered "${pngFilename}" directly to Antigravity chat!`);
+    } catch (err: unknown) {
       console.error('[Header] Send to Agent failed:', err);
-      NotificationManager.fatal('Send to Agent Failed', err);
+      throw err;
     } finally {
       if (sendBtn) sendBtn.disabled = false;
     }

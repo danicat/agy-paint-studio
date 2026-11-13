@@ -34,8 +34,6 @@
   --danger-color: #EF4444;
   --danger-hover: #DC2626;
   --success-color: #10B981;
-  --banana-color: #F59E0B;
-  --banana-hover: #D97706;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
@@ -66,8 +64,6 @@ html.dark {
   --danger-color: #F87171;
   --danger-hover: #EF4444;
   --success-color: #34D399;
-  --banana-color: #FBBF24;
-  --banana-hover: #F59E0B;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
@@ -87,7 +83,6 @@ input,
 textarea,
 pre,
 .input-text,
-.refine-prompt-textarea,
 .modal-overlay pre,
 #fatal-error-overlay pre,
 #file-not-found-overlay pre {
@@ -1168,10 +1163,49 @@ body.studio-mode-preview.studio-mode-inline #app-root {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   box-shadow: var(--shadow-lg);
-  display: flex;
   flex-direction: column;
   overflow: hidden;
   max-height: 90vh;
+  color: var(--text-primary);
+  padding: 0;
+}
+
+div.modal-dialog,
+dialog.modal-dialog[open] {
+  display: flex;
+}
+
+dialog.modal-dialog:modal {
+  margin: auto;
+  max-width: min(94vw, 580px);
+}
+
+dialog.modal-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease-out;
+}
+
+.modal-title-heading {
+  margin: 0;
+  font: inherit;
+}
+
+.send-chat-textarea {
+  field-sizing: content;
+  width: 100%;
+  height: auto;
+  min-block-size: 3lh;
+  max-block-size: 8lh;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .modal-header {
@@ -1294,13 +1328,6 @@ body.studio-mode-preview.studio-mode-inline #app-root {
   box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.25);
 }
 
-.ai-preset-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
 .ai-prompt-input {
   flex: 1 1 160px;
   min-width: 120px;
@@ -1353,22 +1380,6 @@ body.studio-mode-preview.studio-mode-inline #app-root {
 .btn-ai-refine-submit:hover:not(:disabled) {
   opacity: 0.92;
   background: linear-gradient(135deg, #4338CA, #7E22CE);
-}
-
-.refine-spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.75s linear infinite;
-  vertical-align: middle;
-  margin-right: 4px;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 /* Artifacts Modal */
@@ -1522,14 +1533,6 @@ body.studio-mode-preview.studio-mode-inline #app-root {
   opacity: 0.7;
   cursor: pointer;
   margin-left: auto;
-}
-
-.zoom-text {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  width: 38px;
-  text-align: center;
-  font-weight: 500;
 }
 
 .save-format-btn.active {

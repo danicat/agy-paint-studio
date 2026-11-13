@@ -51,6 +51,26 @@ export abstract class BaseTool {
     return layer;
   }
 
+  protected finishOverlayStroke(engine: CanvasEngine, disableSmoothing = false): void {
+    const layer = engine.getActiveLayer();
+    if (layer && layer.visible && !layer.locked) {
+      const opacity = Math.min(1.0, Math.max(0.01, engine.brushOpacity));
+      layer.ctx.save();
+      if (disableSmoothing) {
+        layer.ctx.imageSmoothingEnabled = false;
+      }
+      layer.ctx.globalAlpha = opacity;
+      layer.ctx.drawImage(engine.overlayCanvas, 0, 0);
+      layer.ctx.restore();
+      layer.markDirty();
+    }
+
+    engine.overlayCtx.clearRect(0, 0, engine.width, engine.height);
+    engine.overlayCanvas.style.opacity = '1';
+    engine.render();
+    engine.commitHistory();
+  }
+
   abstract onPointerDown(engine: CanvasEngine, pt: Point, originalEvent: MouseEvent | TouchEvent): void;
   abstract onPointerMove(engine: CanvasEngine, pt: Point, originalEvent: MouseEvent | TouchEvent): void;
   abstract onPointerUp(engine: CanvasEngine, pt: Point, originalEvent: MouseEvent | TouchEvent): void;
